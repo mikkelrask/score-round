@@ -5,6 +5,7 @@
 import { initials, portraitNameKey } from './portrait-data.js';
 import { CloudSync } from './sync.js';
 import { freshState, validateState, importBouts, MAX_STATE_BYTES } from './data.js';
+import { sharedFight } from './fight-night.js';
 import { eligibleCard } from './judging.js';
 import { filterSchedule, groupSchedule } from './schedule-data.js';
 
@@ -255,6 +256,10 @@ import { filterSchedule, groupSchedule } from './schedule-data.js';
   /* ---------------- actions ---------------- */
 
   const ACTIONS = {
+    'night-reveal': () => loadFightNight(true),
+    'night-refresh': () => loadFightNight(false),
+    'night-hide': () => { const b = nightBout(); if (b) nightViews.delete(b.id); renderFightNight(); },
+    'night-official': async () => { const b = nightBout(); if (!b) return; await checkJudges(b, true); await loadFightNight(false); },
     'schedule-toggle': () => { schedule.open = !schedule.open; render(); if (schedule.open && !schedule.result) loadSchedule(); },
     'schedule-retry': () => loadSchedule(),
     'schedule-filter': (el) => { schedule.period = el.dataset.period; renderSchedulePicker(); },
@@ -870,6 +875,7 @@ import { filterSchedule, groupSchedule } from './schedule-data.js';
       </div>
 
       ${roundPanel}
+      <div class="fight-night-host" data-night-card="${esc(b.id)}"></div>
 
       <div class="card-table">
         <div class="card-head"><span>Round</span><span>Winner</span><span style="text-align:right">Red</span><span style="text-align:right">Blue</span><span style="text-align:right">Card</span><span></span></div>
@@ -919,6 +925,59 @@ import { filterSchedule, groupSchedule } from './schedule-data.js';
       portraits.pending.set(key, promise);
     }
   }
+
+  const nightViews = new Map();
+  function nightBout() { return ui.historyOpen && ui.viewBout ? ui.viewBout : state.active; }
+  function nightView(bout) {
+    if (!nightViews.has(bout.id)) nightViews.set(bout.id, { throughRound: 0, result: null, loading: false, error: '' });
+    return nightViews.get(bout.id);
+  }
+  async function loadFightNight(reveal) {
+    const bout = nightBout();
+    if (!sharedFight(bout)) return;
+    const view = nightView(bout);
+    if (view.loading) return;
+    const requested = reveal ? bout.rounds.length : Math.min(view.throughRound, bout.rounds.length);
+    if (!requested) return;
+    view.loading = true; view.error = ''; renderFightNight();
+    try {
+      await cloud.flush();
+      if (cloud.record.pending || cloud.conflict || cloud.authRequired) throw new Error('Save your round to the cloud before revealing the room.');
+      const result = await cloud.api(`fight-night?card=${encodeURIComponent(bout.id)}&round=${requested}`);
+      // Hiding while a request is in flight must not reopen the comparison.
+      if (nightViews.get(bout.id) !== view) return;
+      view.result = result; view.throughRound = result.throughRound;
+    } catch (error) { view.error = error.message; view.result = null; }
+    finally { view.loading = false; renderFightNight(); }
+  }
+  function renderFightNight() {
+    for (const host of document.querySelectorAll('.fight-night-host')) {
+      const bout = [state.active, ...state.history].find(b => b?.id === host.dataset.nightCard);
+      if (!bout) continue;
+      if (!sharedFight(bout)) { host.innerHTML = '<p class="night-manual">Select a scheduled fight next time to compare cards with friends.</p>'; continue; }
+      const view = nightView(bout);
+      // Deleting rounds lowers the local reveal boundary immediately.
+      const result = view.result && view.result.throughRound <= bout.rounds.length ? view.result : null;
+      const reveal = bout.rounds.length > view.throughRound;
+      const rows = result?.participants.map(person => `<tr class="${person.you ? 'night-you' : ''}"><th scope="row">${esc(person.name)}${person.you ? ' <span>(you)</span>' : ''}</th><td class="night-total">${person.submitted ? `${person.totals.red}–${person.totals.blue}` : '—'}<small>Through R${person.submitted}</small></td>${result.rounds.map((r, index) => { const score = person.rounds[index]; return `<td>${score ? `<span class="night-score ${score.winner}">${score.red}–${score.blue}</span>` : '<span class="night-waiting">Waiting</span>'}</td>`; }).join('')}</tr>`).join('') || '';
+      host.innerHTML = `<section class="fight-night-panel" aria-label="Fight night">
+        <div class="night-heading"><div><h3>Fight night</h3><p>${result ? `Revealed through round ${result.throughRound}. Scores follow your red–blue corners.` : 'Make your call first. Reveal the room when your round is saved.'}</p></div>${result ? `<button class="btn btn-sm btn-ghost" data-action="night-hide">Hide scores</button>` : ''}</div>
+        <div class="night-actions">${reveal || !result ? `<button class="btn btn-gold btn-sm" data-action="night-reveal" ${view.loading || !bout.rounds.length || editingIdx !== null && bout === state.active ? 'disabled' : ''}>${view.loading ? 'Checking saved rounds…' : bout.rounds.length ? `Reveal round ${bout.rounds.length}` : 'Save round one to reveal'}</button>` : ''}${view.throughRound ? `<button class="btn btn-sm" data-action="night-refresh" ${view.loading ? 'disabled' : ''}>Refresh revealed rounds</button>` : ''}</div>
+        ${view.error ? `<p class="night-error" role="status">${esc(view.error)}</p>` : ''}
+        ${result ? `<div class="night-table-scroll" tabindex="0" role="region" aria-label="Friends’ scorecards"><table class="night-table"><caption>Red: ${esc(result.fighters.red)} · Blue: ${esc(result.fighters.blue)}</caption><thead><tr><th scope="col">Scorer</th><th scope="col">Running total</th>${result.rounds.map(r => `<th scope="col">R${r.number}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div><p class="night-scroll-hint">Scroll sideways to see all rounds.</p>
+        ${result.participants.length === 1 ? '<p class="night-note">Just your card so far. Friends appear when they score the same scheduled fight.</p>' : ''}
+        <div class="night-rounds">${result.rounds.map(r => `<div class="night-round ${r.split ? 'split' : ''}"><strong>R${r.number}${r.split ? ' · Split room' : ''}</strong><span><b class="red-vote">${r.votes.red} red</b> / <b class="blue-vote">${r.votes.blue} blue</b> / ${r.votes.even} even</span><small>${r.submitted}/${result.participants.length} saved</small></div>`).join('')}</div>
+        ${result.official ? `<div class="night-official"><h4>Official judges · final totals</h4>${result.official.available ? `${result.official.scores.map((score, index) => `<p>Judge ${index + 1}: <b>${score.red}–${score.blue}</b></p>`).join('')}<p class="night-note">${esc(result.official.pairing)}. The API provides final totals only.</p>` : `<p class="night-note">${esc(result.official.reason || 'Official totals have not been checked yet.')}</p><button class="btn btn-sm" data-action="night-official">Check official totals</button>`}</div>` : ''}
+        <p class="night-note">Only saved rounds are shared. Drafts and notes stay private. Refreshes never reveal a later round.</p>` : ''}
+      </section>`;
+    }
+  }
+  setInterval(() => {
+    const bout = nightBout();
+    if (document.visibilityState !== 'visible' || !bout || !document.querySelector(`.fight-night-host[data-night-card="${bout.id}"]`)) return;
+    const view = nightViews.get(bout.id);
+    if (view?.throughRound && !view.loading) loadFightNight(false);
+  }, 15000);
 
   const judging = { cards: new Map(), loading: new Set(), board: null, boardLoading: false, boardError: '' };
   async function checkJudges(bout, force = false) {
@@ -1047,6 +1106,7 @@ import { filterSchedule, groupSchedule } from './schedule-data.js';
           <div class="detail-line"><span>Rounds scored</span><b>${b.rounds.length}</b></div>
           ${resHTML}
           ${judgesHTML(b)}
+          <div class="fight-night-host" data-night-card="${esc(b.id)}"></div>
           <table class="print-table" style="width:100%;border-collapse:collapse;font-size:13px">
             <thead><tr style="background:var(--bg-2)"><th style="padding:6px;border:1px solid var(--line)">R</th><th style="padding:6px;border:1px solid var(--line)">Winner</th><th style="padding:6px;border:1px solid var(--line)">${esc(b.red.name)}</th><th style="padding:6px;border:1px solid var(--line)">${esc(b.blue.name)}</th></tr></thead>
             <tbody>${rows}</tbody>
@@ -1094,6 +1154,7 @@ import { filterSchedule, groupSchedule } from './schedule-data.js';
     }
 
     wrap.innerHTML = html;
+    renderFightNight();
     bindEndModal();
     updatePrintout(); // print target follows the bout being viewed
   }

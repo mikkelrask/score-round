@@ -127,3 +127,15 @@ The red and blue corner panels automatically look up credited Wikimedia Commons 
 Only verified CC BY, CC BY-SA and CC0 metadata is accepted. Required attribution takes precedence over the artist field. Shared D1 metadata is cached for 30 days for photos, seven days for missing matches and one hour for failures. A lease deduplicates concurrent lookups, with at most 40 new lookups per UTC day. These requests use Wikimedia, not the paid boxing API. The same-origin image route proxies only known Wikimedia assets, bounds their size and caches successful images for 24 hours. It exposes no personal scorecard data.
 
 Apply `migrations/0004_fighter_portraits.sql` before deploying. Keep `/media/portraits/*` in `_routes.json` alongside `/api/*`.
+
+### Shared fight night
+
+Choose the same scheduled API fight as your friends. A **Fight night** panel appears during scoring and in the completed card's history. Committed rounds participate automatically for everyone admitted through Access; unfinished drafts and result notes remain private. Manual cards do not group automatically.
+
+Save your round with **Next round**, then choose **Reveal round N** to see saved votes, per-round scores and running totals in your own red–blue order. The server verifies ownership and your cloud-saved round count before returning any scores. An ahead scorer is truncated to your requested round; someone behind shows **Waiting**. A split room means submitted winner votes differ, including even rounds. Totals state which round each scorer has reached.
+
+The revealed comparison refreshes every 15 seconds while visible, without advancing beyond the last explicitly revealed round. **Hide scores** closes it; reopening and each new round require an explicit reveal. Reveal choices are session-only. One card per user is shown: their active card for that fight, otherwise their earliest completed card. Fighter IDs (or exact normalized names for older cards) map swapped corners; mismatched fighters or scheduled round counts are excluded.
+
+Official final totals appear only after you complete and record your own full decision card and reveal all rounds. Fight night reads the existing official-results cache and makes no provider requests while scoring. **Check official totals** uses the existing comparison endpoint and quota protections. The provider does not supply round-by-round judge cards.
+
+This view uses existing D1 tables; it needs no new migration. API responses are authenticated and uncached. They omit email domains, account/card IDs, drafts, notes, results and later rounds. As with the leaderboard, this is a friendly comparison: rounds can still be edited or imported, and submissions are not immutable competition entries.

@@ -221,3 +221,62 @@ test('corner portraits keep scoring intact and show credits; broken images fall 
   expect(await page.evaluate(() => window.__scorecard.draft().winner)).toBe('red');
   await expect(page.locator('#sync-status')).toHaveText('Saved to cloud');
 });
+
+const nightCard = () => ({
+  id: 'night-card', red: { name: 'Red Boxer' }, blue: { name: 'Blue Boxer' }, weightClass: '', roundsTotal: 3, roundLen: 180,
+  rounds: [], status: 'active', result: null, draft: null, date: '2026-10-02T12:00:00Z', startedAt: '2026-10-02T12:00:00Z', endedAt: null,
+  sourceFight: { provider: 'boxing-data', id: 'night-fight', eventId: 'night-event', eventTitle: 'Fight night test', day: '2026-10-02', cornersConfirmed: true },
+});
+async function seedNight(request) {
+  const { user } = await (await request.get('/api/me')).json();
+  const headers = { 'X-Scorecard-User': user.id };
+  const current = await (await request.get('/api/state', { headers })).json();
+  await request.put('/api/state', { headers: { ...headers, Origin: 'http://localhost:8788' }, data: { revision: current.revision, state: { ...freshState(), active: nightCard() } } });
+  return headers;
+}
+test('fight night requires a saved round, reveals the owner card, and keeps the next draft private', async ({page, request}) => {
+  const headers = await seedNight(request);
+  await page.goto('/'); await expect(page.locator('#sync-status')).toHaveText('Saved to cloud');
+  await expect(page.getByRole('button', {name:'Save round one to reveal'})).toBeDisabled();
+  await page.locator('[data-action="set-winner"][data-side="red"]').click();
+  await expect(page.getByRole('button', {name:'Save round one to reveal'})).toBeDisabled();
+  await page.locator('[data-action="round-next"]').click();
+  await expect(page.locator('#sync-status')).toHaveText('Saved to cloud');
+  await page.getByRole('button', {name:'Reveal round 1', exact:true}).click();
+  await expect(page.locator('.night-table tbody')).toContainText('10–9');
+  await expect(page.locator('.night-table')).toContainText('(you)');
+  await page.locator('[data-action="set-winner"][data-side="blue"]').click();
+  await page.getByRole('button', {name:'Refresh revealed rounds'}).click();
+  await expect(page.locator('.night-table thead')).not.toContainText('R2');
+  const blocked = await request.get('/api/fight-night?card=night-card&round=2', {headers});
+  expect(blocked.status()).toBe(403);
+  await page.getByRole('button', {name:'Hide scores'}).click();
+  await expect(page.locator('.night-table')).toHaveCount(0);
+});
+test('fight night renders friends, highlights a split round and never advances the reveal on refresh', async ({page, request, context}) => {
+  await seedNight(request); const requested = [];
+  await context.route('**/api/fight-night?*', async route => {
+    const n = Number(new URL(route.request().url()).searchParams.get('round')); requested.push(n);
+    const red = Array.from({length:n},()=>({winner:'red',red:10,blue:9}));
+    const blue = Array.from({length:n},()=>({winner:'blue',red:9,blue:10}));
+    await route.fulfill({json:{throughRound:n,fighters:{red:'Red Boxer',blue:'Blue Boxer'},participants:[
+      {name:'developer',you:true,submitted:n,totals:{red:n*10,blue:n*9},rounds:red},
+      {name:'friend',you:false,submitted:n,totals:{red:n*9,blue:n*10},rounds:blue},
+      {name:'waiting',you:false,submitted:0,totals:{red:0,blue:0},rounds:[]}],
+      rounds:Array.from({length:n},(_,i)=>({number:i+1,votes:{red:1,blue:1,even:0},submitted:2,split:true})),official:null}});
+  });
+  await page.goto('/'); await expect(page.locator('#sync-status')).toHaveText('Saved to cloud');
+  await page.locator('[data-action="set-winner"][data-side="red"]').click(); await page.locator('[data-action="round-next"]').click();
+  await expect(page.locator('#sync-status')).toHaveText('Saved to cloud');
+  await page.getByRole('button',{name:'Reveal round 1',exact:true}).click();
+  await expect(page.locator('.night-round.split')).toContainText('Split room');
+  await expect(page.locator('.night-table tbody')).toContainText('Waiting');
+  await page.locator('[data-action="set-winner"][data-side="red"]').click(); await page.locator('[data-action="round-next"]').click();
+  await expect(page.locator('#sync-status')).toHaveText('Saved to cloud');
+  await page.getByRole('button',{name:'Refresh revealed rounds'}).click();
+  await expect.poll(()=>requested.length).toBe(2); expect(requested).toEqual([1,1]);
+  await expect(page.locator('.night-table thead')).not.toContainText('R2');
+  await page.getByRole('button',{name:'Reveal round 2',exact:true}).click();
+  await expect(page.locator('.night-table thead')).toContainText('R2');
+  expect(requested).toEqual([1,1,2]);
+});
