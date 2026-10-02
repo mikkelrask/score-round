@@ -3,6 +3,7 @@
    Vanilla JS · local device saves + per-user cloud sync
    ============================================================ */
 import { initials, portraitNameKey } from './portrait-data.js';
+import { FightLive } from './live-client.js';
 import { CloudSync } from './sync.js';
 import { freshState, validateState, importBouts, MAX_STATE_BYTES } from './data.js';
 import { personalStats } from './personal-stats.js';
@@ -1023,6 +1024,20 @@ import { filterSchedule, groupSchedule } from './schedule-data.js';
   }
 
   const nightViews = new Map();
+  let nightRefreshPending = false;
+  const live = new FightLive({ onChange: () => {
+    const bout = nightBout(), view = bout && nightViews.get(bout.id);
+    if (!view?.throughRound) return;
+    if (view.loading) nightRefreshPending = true; else loadFightNight(false);
+  }, onStatus: () => renderFightNight() });
+  function watchFightNight() {
+    const bout = nightBout(), view = bout && nightViews.get(bout.id);
+    const visible = document.visibilityState === 'visible' && bout && document.querySelector(`.fight-night-host[data-night-card="${bout.id}"]`);
+    live.watch(visible && view?.throughRound && bout.rounds.length && !cloud.authRequired ? cloud.user?.id : null, bout?.id);
+  }
+  document.addEventListener('visibilitychange', () => { watchFightNight(); });
+  window.addEventListener('pagehide', () => live.stop());
+  window.addEventListener('pageshow', () => watchFightNight());
   function nightBout() { return ui.historyOpen && ui.viewBout ? ui.viewBout : state.active; }
   function nightView(bout) {
     if (!nightViews.has(bout.id)) nightViews.set(bout.id, { throughRound: 0, result: null, loading: false, error: '' });
@@ -1043,9 +1058,13 @@ import { filterSchedule, groupSchedule } from './schedule-data.js';
       if (nightViews.get(bout.id) !== view) return;
       view.result = result; view.throughRound = result.throughRound;
     } catch (error) { view.error = error.message; view.result = null; }
-    finally { view.loading = false; renderFightNight(); }
+    finally {
+      view.loading = false; renderFightNight();
+      if (nightRefreshPending) { nightRefreshPending = false; queueMicrotask(() => loadFightNight(false)); }
+    }
   }
   function renderFightNight() {
+    watchFightNight();
     for (const host of document.querySelectorAll('.fight-night-host')) {
       const bout = [state.active, ...state.history].find(b => b?.id === host.dataset.nightCard);
       if (!bout) continue;
@@ -1063,7 +1082,7 @@ import { filterSchedule, groupSchedule } from './schedule-data.js';
         ${result.participants.length === 1 ? '<p class="night-note">Just your card so far. Friends appear when they score the same scheduled fight.</p>' : ''}
         <div class="night-rounds">${result.rounds.map(r => `<div class="night-round ${r.split ? 'split' : ''}"><strong>R${r.number}${r.split ? ' · Split room' : ''}</strong><span><b class="red-vote">${r.votes.red} red</b> / <b class="blue-vote">${r.votes.blue} blue</b> / ${r.votes.even} even</span><small>${r.submitted}/${result.participants.length} saved</small></div>`).join('')}</div>
         ${result.official ? `<div class="night-official"><h4>Official judges · final totals</h4>${result.official.available ? `${result.official.scores.map((score, index) => `<p>Judge ${index + 1}: <b>${score.red}–${score.blue}</b></p>`).join('')}<p class="night-note">${esc(result.official.pairing)}. The API provides final totals only.</p>` : `<p class="night-note">${esc(result.official.reason || 'Official totals have not been checked yet.')}</p><button class="btn btn-sm" data-action="night-official">Check official totals</button>`}</div>` : ''}
-        <p class="night-note">Only saved rounds are shared. Drafts and notes stay private. Refreshes never reveal a later round.</p>` : ''}
+        <p class="night-note">${live.connected ? 'Live updates connected.' : 'Checking for updates every 15 seconds.'} Only saved rounds are shared. Drafts and notes stay private. Refreshes never reveal a later round.</p>` : ''}
       </section>`;
     }
   }
@@ -1071,7 +1090,8 @@ import { filterSchedule, groupSchedule } from './schedule-data.js';
     const bout = nightBout();
     if (document.visibilityState !== 'visible' || !bout || !document.querySelector(`.fight-night-host[data-night-card="${bout.id}"]`)) return;
     const view = nightViews.get(bout.id);
-    if (view?.throughRound && !view.loading) loadFightNight(false);
+    watchFightNight();
+    if (view?.throughRound && !view.loading && !live.connected) loadFightNight(false);
   }, 15000);
 
   const judging = { cards: new Map(), loading: new Set(), board: null, boardLoading: false, boardError: '' };

@@ -274,11 +274,11 @@ test('fight night renders friends, highlights a split round and never advances t
   await page.locator('[data-action="set-winner"][data-side="red"]').click(); await page.locator('[data-action="round-next"]').click();
   await expect(page.locator('#sync-status')).toHaveText('Saved to cloud');
   await page.getByRole('button',{name:'Refresh revealed rounds'}).click();
-  await expect.poll(()=>requested.length).toBe(2); expect(requested).toEqual([1,1]);
+  expect(requested.length).toBeGreaterThanOrEqual(2); expect(requested.every(n => n === 1)).toBeTruthy();
   await expect(page.locator('.night-table thead')).not.toContainText('R2');
   await page.getByRole('button',{name:'Reveal round 2',exact:true}).click();
   await expect(page.locator('.night-table thead')).toContainText('R2');
-  expect(requested).toEqual([1,1,2]);
+  expect(requested.at(-1)).toBe(2);
 });
 
 test('lobby joins a friend’s setup with a fresh private scorecard and saved source', async ({page,context}) => {
@@ -311,4 +311,25 @@ test('fighter profile is on-demand, uses the swapped fighter ID, omits missing a
   await expect(page.locator('#overlays .detail-line').filter({hasText:'Age'})).toHaveCount(0);await expect(page.locator('#overlays .detail-line').filter({hasText:'KO wins'})).toHaveCount(0);
   await page.keyboard.press('r');expect(await page.evaluate(()=>window.__scorecard.draft().winner)).toBe('');
   await page.getByRole('button',{name:'Close fighter profile'}).click();expect(seen).toEqual(['blue']);
+});
+
+test('real socket updates committed scores immediately without advancing the revealed round', async ({page, request}) => {
+  const round = winner => ({winner,kd:{red:0,blue:0},ded:{red:0,blue:0}});
+  const headers = await seedNight(request, {rounds:[round('red')]});
+  const requests = [];
+  page.on('request', req => { if (req.url().includes('/api/fight-night?')) requests.push(req.url()); });
+  await page.goto('/');
+  await expect(page.locator('#sync-status')).toHaveText('Saved to cloud');
+  await page.getByRole('button',{name:'Reveal round 1',exact:true}).click();
+  await expect(page.locator('.fight-night-panel')).toContainText('Live updates connected.');
+  await expect(page.locator('.night-table tbody')).toContainText('10–9');
+  const current = await (await request.get('/api/state',{headers})).json();
+  current.state.active.rounds = [round('blue'),round('red')];
+  const saved = await request.put('/api/state',{headers:{...headers,Origin:'http://localhost:8788'},data:{revision:current.revision,state:current.state}});
+  expect(saved.ok()).toBeTruthy();
+  await expect(page.locator('.night-table tbody')).toContainText('9–10',{timeout:5000});
+  await expect(page.locator('.night-table thead')).not.toContainText('R2');
+  expect(requests.every(url => new URL(url).searchParams.get('round') === '1')).toBeTruthy();
+  await page.getByRole('button',{name:'Hide scores'}).click();
+  await expect(page.locator('.night-table')).toHaveCount(0);
 });
