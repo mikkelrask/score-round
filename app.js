@@ -591,7 +591,7 @@ import { filterSchedule, groupSchedule } from './schedule-data.js';
   }
   function renderLobby() {
     const target = $('#lobby-rooms'); if (!target) return;
-    target.innerHTML = lobby.loading ? '<p class="lobby-note" role="status">Checking friends’ bouts…</p>' : lobby.error ? `<p class="lobby-note" role="status">${esc(lobby.error)}. You can still start your own bout below.</p>` : lobby.rooms.length ? lobby.rooms.map((room, index) => `<div class="lobby-room"><div><strong>${esc(room.fight.red.name)} <span>vs</span> ${esc(room.fight.blue.name)}</strong><p>${esc(room.fight.eventTitle)} · ${room.fight.roundsTotal} rounds · ${fmtClock(room.fight.roundLen)}</p><p>${room.people.map(person => esc(person.name) + (person.you ? ' (you)' : '')).join(', ')}</p></div><button class="btn btn-gold btn-sm" data-action="lobby-join" data-room="${index}">Join bout</button></div>`).join('') + '<p class="lobby-note">Saved bouts started in the last 24 hours. Scores and round progress stay hidden here.</p>' : '<p class="lobby-note">No shared bouts in progress. Start a scheduled fight below and friends can join it here.</p>';
+    target.innerHTML = lobby.loading ? '<p class="lobby-note" role="status">Checking friends’ bouts…</p>' : lobby.error ? `<p class="lobby-note" role="status">${esc(lobby.error)}. You can still start your own bout below.</p>` : lobby.rooms.length ? lobby.rooms.map((room, index) => `<div class="lobby-room"><div><strong>${esc(room.fight.red.name)} <span>vs</span> ${esc(room.fight.blue.name)}</strong><p>${esc(room.fight.eventTitle)} · ${room.fight.roundsTotal} rounds · ${fmtClock(room.fight.roundLen)}</p><p>${room.people.map(person => esc(person.name) + (person.you ? ' (you)' : '')).join(', ')}</p></div><button class="btn btn-gold btn-sm" data-action="lobby-join" data-room="${index}">Join bout</button></div>`).join('') + '<p class="lobby-note">Saved bouts started in the last 24 hours. Scores and round progress stay hidden here.</p>' : '<p class="lobby-note">No shared bouts in progress. Choose a scheduled fight to start one.</p>';
   }
   function joinLobby(index) {
     const room = lobby.rooms[index]; if (!room || state.active) return;
@@ -669,11 +669,13 @@ import { filterSchedule, groupSchedule } from './schedule-data.js';
         </div>
       </div>
       ${bannerHTML}
-      <section class="lobby-panel" aria-label="Friends’ fight nights"><div class="schedule-heading"><div><h2>At ringside together</h2><p>Join a friend’s scheduled bout with the same setup.</p></div><button class="btn btn-sm btn-ghost" data-action="lobby-refresh">Refresh</button></div><div id="lobby-rooms"></div></section>
-      <section class="schedule-picker" aria-label="Scheduled fights">
+      <div class="fight-options">
+      <section class="lobby-panel setup-picker" aria-label="Friends’ fight nights"><div class="schedule-heading"><div><h2>At ringside together</h2><p>Join a friend’s scheduled bout with the same setup.</p></div><button class="btn" data-action="lobby-refresh">Refresh</button></div><div id="lobby-rooms"></div></section>
+      <section class="schedule-picker setup-picker" aria-label="Scheduled fights">
         <div class="schedule-heading"><div><h2>From the fight card</h2><p>Select a scheduled bout to fill in the details.</p></div><button class="btn" data-action="schedule-toggle" aria-expanded="${schedule.open}" aria-controls="schedule-content">${schedule.open ? 'Hide schedule' : 'Browse fights'}</button></div>
         <div id="schedule-content" ${schedule.open ? '' : 'hidden'}></div>
       </section>
+      </div>
 
       ${setup.selectedFight ? `<div class="selected-fight"><div><strong>${esc(setup.selectedFight.eventTitle)}</strong><span>${scheduleDate(setup.selectedFight.eventDay)}${setup.venue ? ' · ' + esc(setup.venue) : ''}</span></div><button class="btn btn-sm btn-ghost" data-action="schedule-clear">Clear selection</button><p>${setup.selectedFight.fromLobby ? 'Using your friend’s setup. Check the corners and settings against the broadcast. ' : ''}${setup.cornersSwapped ? 'Corners swapped. Check the broadcast before scoring.' : setup.selectedFight.cornersConfirmed ? 'Corner assignments supplied by the schedule.' : 'Corner assignments are not supplied. Swap corners to match the broadcast.'}${!setup.selectedFight.roundsTotal ? ' Choose the scheduled number of rounds.' : ''}${!setup.selectedFight.weightClass ? ' Weight class is not supplied; enter it below if known.' : ''}${!setup.selectedFight.roundLen ? ' Choose the round length before starting.' : ''}</p></div>` : ''}
       <div class="setup-grid">
