@@ -215,8 +215,8 @@ test('corner portraits keep scoring intact and show credits; broken images fall 
   await expect(page.getByRole('img', { name: 'Portrait of Red Boxer' })).toBeVisible();
   await expect(page.locator('[data-portrait-name="Blue Boxer"] img')).toHaveCount(0);
   await expect(page.locator('[data-portrait-name="Blue Boxer"] .portrait-initials')).toHaveText('BB');
-  await page.getByText('Photo credit', { exact: true }).click();
-  await expect(page.getByText('Photographer / WikiPortraits', { exact: true })).toBeVisible();
+  await page.getByText('Photo sources', { exact: true }).click();
+  await expect(page.locator('.photo-source-list').getByText('Photographer / WikiPortraits', { exact: false })).toBeVisible();
   await page.locator('[data-action="set-winner"][data-side="red"]').click();
   expect(await page.evaluate(() => window.__scorecard.draft().winner)).toBe('red');
   await expect(page.locator('#sync-status')).toHaveText('Saved to cloud');

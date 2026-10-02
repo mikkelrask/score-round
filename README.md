@@ -122,7 +122,7 @@ Apply `migrations/0003_official_scores.sql` before deploying this feature. It ad
 
 ### Fighter portraits
 
-The red and blue corner panels automatically look up credited Wikimedia Commons photos for manual and scheduled fights. Matching requires a unique human boxer with an exact normalized English name or alias and a Wikidata image. Missing or ambiguous matches, unsupported licenses and broken images display initials. Photos are cropped visually to fit; background removal is not performed. Each photo has expandable source, author, license and cropping credits.
+The red and blue corner panels automatically look up credited Wikimedia Commons photos for manual and scheduled fights. Matching requires a unique human boxer with an exact normalized English name or alias and a Wikidata image. Missing or ambiguous matches, unsupported licenses and broken images display initials. Photos are cropped visually to fit; background removal is not performed. Photos fill the corner panels under red/blue overlays. A shared expandable “Photo sources” footer preserves source, author, license and crop/tint credits.
 
 Only verified CC BY, CC BY-SA and CC0 metadata is accepted. Required attribution takes precedence over the artist field. Shared D1 metadata is cached for 30 days for photos, seven days for missing matches and one hour for failures. A lease deduplicates concurrent lookups, with at most 40 new lookups per UTC day. These requests use Wikimedia, not the paid boxing API. The same-origin image route proxies only known Wikimedia assets, bounds their size and caches successful images for 24 hours. It exposes no personal scorecard data.
 

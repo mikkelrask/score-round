@@ -475,7 +475,7 @@ import { filterSchedule, groupSchedule } from './schedule-data.js';
 
   function render() {
     const app = $("#app");
-    app.innerHTML = state.active ? liveHTML() : setupHTML();
+    app.innerHTML = (state.active ? liveHTML() : setupHTML()) + `<footer class="photo-sources no-print" id="photo-sources" hidden></footer>`;
     $("#nav-new-bout").hidden = !state.active;
     if (state.active) {
       if (!timer.iv) timer.iv = setInterval(tick, 1000);
@@ -881,18 +881,28 @@ import { filterSchedule, groupSchedule } from './schedule-data.js';
 
   const portraits = { values: new Map(), pending: new Map(), failedImages: new Set() };
   function portraitHTML(name) {
-    return `<div class="portrait-wrap" data-portrait-name="${esc(name)}"><div class="portrait-frame"><span class="portrait-initials" aria-hidden="true">${esc(initials(name))}</span></div><div class="portrait-credit"></div></div>`;
+    return `<div class="portrait-wrap" data-portrait-name="${esc(name)}"><div class="portrait-frame"><span class="portrait-initials" aria-hidden="true">${esc(initials(name))}</span></div></div>`;
   }
   function paintPortrait(node, photo) {
     if (!node.isConnected || !photo?.available || portraits.failedImages.has(photo.imageUrl) || node.querySelector('img')) return;
     const frame = node.querySelector('.portrait-frame'), image = document.createElement('img');
     image.className = 'portrait-image'; image.alt = `Portrait of ${node.dataset.portraitName}`;
     image.decoding = 'async'; image.loading = 'lazy';
-    image.addEventListener('load', () => frame.classList.add('photo-ready'), { once: true });
-    image.addEventListener('error', () => { portraits.failedImages.add(photo.imageUrl); image.remove(); frame.classList.remove('photo-ready'); node.querySelector('.portrait-credit').innerHTML = ''; }, { once: true });
+    image.addEventListener('load', () => { frame.classList.add('photo-ready'); renderPhotoSources(); }, { once: true });
+    image.addEventListener('error', () => { portraits.failedImages.add(photo.imageUrl); image.remove(); frame.classList.remove('photo-ready'); renderPhotoSources(); }, { once: true });
     image.src = photo.imageUrl; frame.append(image);
-    node.querySelector('.portrait-credit').innerHTML = `<details><summary>Photo credit</summary><div><a href="${esc(photo.sourceUrl)}" target="_blank" rel="noopener noreferrer">${esc(photo.title)}</a><span>${esc(photo.author)}${photo.credit ? ' · ' + esc(photo.credit) : ''}</span><a href="${esc(photo.licenseUrl)}" target="_blank" rel="noopener noreferrer">${esc(photo.license)}</a><span>Cropped to fit.</span></div></details>`;
-    if (image.complete && image.naturalWidth) frame.classList.add('photo-ready');
+
+    if (image.complete && image.naturalWidth) { frame.classList.add('photo-ready'); renderPhotoSources(); }
+  }
+  function renderPhotoSources() {
+    const footer = document.getElementById('photo-sources');
+    if (!footer) return;
+    const names = [...document.querySelectorAll('[data-portrait-name]')].filter(node => node.querySelector('.photo-ready')).map(node => node.dataset.portraitName);
+    const photos = [...new Set(names)].map(name => ({ name, photo: portraits.values.get(portraitNameKey(name)) })).filter(({ photo }) => photo?.available);
+    footer.hidden = !photos.length;
+    if (!photos.length) { footer.innerHTML = ''; return; }
+    const open = footer.querySelector('details')?.open;
+    footer.innerHTML = `<details ${open ? 'open' : ''}><summary>Photo sources</summary><div class="photo-source-list">${photos.map(({name, photo}) => `<p><strong>${esc(name)}</strong> — <a href="${esc(photo.sourceUrl)}" target="_blank" rel="noopener noreferrer">${esc(photo.title)}</a><br>${esc(photo.author)}${photo.credit ? ' · ' + esc(photo.credit) : ''} · <a href="${esc(photo.licenseUrl)}" target="_blank" rel="noopener noreferrer">${esc(photo.license)}</a>. Cropped and colour tinted.</p>`).join('')}</div></details>`;
   }
   function renderPortraits() {
     for (const node of document.querySelectorAll('[data-portrait-name]')) {
