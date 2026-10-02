@@ -8,7 +8,8 @@ const exportBout = {
   status: 'done', result: { type: 'UD', winner: 'blue', round: null, note: '' },
   date: '2026-09-05T21:10:17.761Z', startedAt: '2026-09-05T21:10:17.763Z', endedAt: '2026-09-08T21:39:45.277Z', draft: null,
 };
-test.beforeEach(async ({ request }) => {
+test.beforeEach(async ({ request, context }) => {
+  await context.route("**/api/portraits?*", route => route.fulfill({ json: { available: false } }));
   const { user } = await (await request.get('/api/me')).json();
   const headers = { 'X-Scorecard-User': user.id };
   const current = await (await request.get('/api/state', { headers })).json();
@@ -197,4 +198,26 @@ test('an unavailable official result keeps a card unranked and can be retried', 
   await page.getByRole('button', { name: 'Card', exact: true }).first().click();
   await expect(page.getByText('Official result is not available yet.')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Check official scores' })).toBeEnabled();
+});
+
+test('corner portraits keep scoring intact and show credits; broken images fall back to initials', async ({ page, context }) => {
+  await context.unroute('**/api/portraits?*');
+  await context.route('**/api/portraits?*', route => {
+    const name = new URL(route.request().url()).searchParams.get('name');
+    return route.fulfill({ json: { available: true, imageUrl: name === 'Red Boxer' ? '/media/portraits/test-photo' : '/media/portraits/broken', sourceUrl: 'https://commons.wikimedia.org/wiki/File:Photo.jpg', title: 'Boxer photo', author: 'Photographer / WikiPortraits', license: 'CC BY-SA 4.0', licenseUrl: 'https://creativecommons.org/licenses/by-sa/4.0/' } });
+  });
+  await context.route('**/media/portraits/test-photo', route => route.fulfill({ contentType: 'image/png', body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64') }));
+  await context.route('**/media/portraits/broken', route => route.fulfill({ status: 404 }));
+  await page.goto('/'); await expect(page.locator('#sync-status')).toHaveText('Saved to cloud');
+  await page.locator('[data-model="redName"]').fill('Red Boxer');
+  await page.locator('[data-model="blueName"]').fill('Blue Boxer');
+  await page.getByRole('button', { name: 'Start the bout' }).click();
+  await expect(page.getByRole('img', { name: 'Portrait of Red Boxer' })).toBeVisible();
+  await expect(page.locator('[data-portrait-name="Blue Boxer"] img')).toHaveCount(0);
+  await expect(page.locator('[data-portrait-name="Blue Boxer"] .portrait-initials')).toHaveText('BB');
+  await page.getByText('Photo sources', { exact: true }).click();
+  await expect(page.locator('.photo-source-list').getByText('Photographer / WikiPortraits', { exact: false })).toBeVisible();
+  await page.locator('[data-action="set-winner"][data-side="red"]').click();
+  expect(await page.evaluate(() => window.__scorecard.draft().winner)).toBe('red');
+  await expect(page.locator('#sync-status')).toHaveText('Saved to cloud');
 });

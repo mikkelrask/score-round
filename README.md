@@ -119,3 +119,11 @@ The provider supplies unlabelled score pairs. We orient the entire set by the pu
 Official scores use a shared D1 cache, request lease, and the same 80-request/month ceiling and upstream quota checks as schedules. Failures and pending results are cached briefly to avoid repeated calls. Successfully paired results are retained, with no automatic refresh, so they remain comparable beyond the free subscription's historical window. The leaderboard reads saved cards and cached results without spending API calls. Deleting a saved card removes its contribution on the next leaderboard read; score edits and imports remain allowed.
 
 Apply `migrations/0003_official_scores.sql` before deploying this feature. It adds only an official-results cache; personal history remains in the existing storage. Results stay excluded from the schedule endpoint and only become visible in a completed card or the leaderboard aggregate.
+
+### Fighter portraits
+
+The red and blue corner panels automatically look up credited Wikimedia Commons photos for manual and scheduled fights. Matching requires a unique human boxer with an exact normalized English name or alias and a Wikidata image. Missing or ambiguous matches, unsupported licenses and broken images display initials. Photos are cropped visually to fit; background removal is not performed. Photos fill the corner panels under red/blue overlays. A shared expandable “Photo sources” footer preserves source, author, license and crop/tint credits.
+
+Only verified CC BY, CC BY-SA and CC0 metadata is accepted. Required attribution takes precedence over the artist field. Shared D1 metadata is cached for 30 days for photos, seven days for missing matches and one hour for failures. A lease deduplicates concurrent lookups, with at most 40 new lookups per UTC day. These requests use Wikimedia, not the paid boxing API. The same-origin image route proxies only known Wikimedia assets, bounds their size and caches successful images for 24 hours. It exposes no personal scorecard data.
+
+Apply `migrations/0004_fighter_portraits.sql` before deploying. Keep `/media/portraits/*` in `_routes.json` alongside `/api/*`.
