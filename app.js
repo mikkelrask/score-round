@@ -1,7 +1,10 @@
 /* ============================================================
    SCORECARD — boxing round scoring (10-point must)
-   Vanilla JS · localStorage persistence · no dependencies
+   Vanilla JS · local device saves + per-user cloud sync
    ============================================================ */
+import { CloudSync } from './sync.js';
+import { freshState, validateState, importBouts, MAX_STATE_BYTES } from './data.js';
+
 (() => {
   "use strict";
 
@@ -9,7 +12,6 @@
 
   const LS_KEY = "boxing-scorecard.v1";
   const REST_LEN = 60; // seconds between rounds
-  const MAX_HISTORY = 50;
   const ROUND_LEN_DEFAULT = 180;
   const RESULT_TYPES = [
     ["UD", "Unanimous decision"],
@@ -40,26 +42,89 @@
 
   const emptyDraft = () => ({ winner: "", kd: { red: 0, blue: 0 }, ded: { red: 0, blue: 0 } });
 
-  function loadState() {
-    try {
-      const raw = localStorage.getItem(LS_KEY);
-      if (!raw) return { version: 1, active: null, history: [], prefs: { rounds: 10, roundLen: ROUND_LEN_DEFAULT } };
-      const s = JSON.parse(raw);
-      if (!s || s.version !== 1 || !Array.isArray(s.history)) return null;
-      return s;
-    } catch {
-      return null;
-    }
-  }
-  let state = loadState() || { version: 1, active: null, history: [], prefs: { rounds: 10, roundLen: ROUND_LEN_DEFAULT } };
+  const state = freshState();
   let draft = state.active ? (state.active.draft || emptyDraft()) : emptyDraft();
   let editingIdx = null; // index of committed round being edited, or null
   let banner = null;     // { text, sub } transient result banner
   let bannerTimer = null;
 
   function persist() {
-    if (state.active) state.active.draft = draft;
-    try { localStorage.setItem(LS_KEY, JSON.stringify(state)); } catch {}
+    if (state.active) { state.active.draft = draft; state.active.editingIdx = editingIdx; }
+    cloud.save(state);
+  }
+
+  function applyState(next) {
+    stopTimer();
+    Object.assign(state, structuredClone(next));
+    draft = state.active?.draft || emptyDraft();
+    editingIdx = state.active?.editingIdx ?? null;
+    timer = { phase: 'idle', remaining: roundLen(state.active), running: false, iv: null };
+    ui.viewBout = null; ui.endOpen = false; ui.kd = null;
+    render();
+  }
+  const cloud = new CloudSync({ onState: applyState, onStatus: (message, sync) => {
+    const el = $('#sync-status');
+    el.textContent = message;
+    el.classList.toggle('sync-warning', Boolean(sync.conflict || sync.authRequired || sync.localError));
+    if (sync.user) $('#account-email').textContent = sync.user.email;
+  } });
+
+  function importHistory(payload) {
+    const result = importBouts(state, payload);
+    if (state.active?.id !== result.state.active?.id) applyState(result.state);
+    else {
+      Object.assign(state, result.state);
+      draft = state.active?.draft || emptyDraft();
+    }
+    persist(); render();
+    alert(`Imported ${result.added} scorecard${result.added === 1 ? '' : 's'}. ${result.skipped} already present.`);
+  }
+
+  function migrateBrowser() {
+    try {
+      const raw = localStorage.getItem(LS_KEY);
+      if (!raw) { alert('No old browser history found. You can import a JSON export instead.'); return; }
+      const legacy = validateState(JSON.parse(raw));
+      if (!confirm(`Import ${legacy.history.length} previous scorecards${legacy.active ? ' and the fight in progress' : ''} into ${cloud.user.email}?`)) return;
+      if (legacy.active && state.active && legacy.active.id !== state.active.id) {
+        alert('Finish or discard your current fight before importing the old fight in progress. Your old data is still intact.'); return;
+      }
+      const result = importBouts(state, { bouts: legacy.history });
+      if (legacy.active && !result.state.history.some((b) => b.id === legacy.active.id) && !result.state.active) result.state.active = structuredClone(legacy.active);
+      validateState(result.state);
+      applyState(result.state); persist();
+      alert(`Imported ${result.added} scorecards. Your original browser data has been kept as a backup.`);
+    } catch (error) { alert(error.message); }
+  }
+
+  function reviewSync() {
+    if (cloud.authRequired) { location.reload(); return; }
+    if (!cloud.user) { location.reload(); return; }
+    if (!cloud.conflict) { cloud.refresh(); return; }
+    $('#sync-review')?.remove();
+    const panel = document.createElement('div');
+    panel.id = 'sync-review'; panel.className = 'overlay';
+    panel.innerHTML = `<div class="overlay-panel" style="width:min(580px,100%)">
+      <h2>Two devices have different saves</h2>
+      <p>Your changes have been kept on this device. Choose which version to use for this account. Export the device copy first if you want to keep both.</p>
+      <p>Device: ${state.history.length} saved fights${state.active ? ', one in progress' : ''}. Cloud: ${cloud.conflict.state.history.length} saved fights${cloud.conflict.state.active ? ', one in progress' : ''}.</p>
+      <div class="modal-actions">
+        <button class="btn" data-sync="export">Export device copy</button>
+        <button class="btn" data-sync="cloud">Use cloud copy</button>
+        <button class="btn" data-sync="device">Use device copy</button>
+        <button class="btn btn-ghost" data-sync="later">Decide later</button>
+      </div></div>`;
+    panel.addEventListener('click', (event) => {
+      const choice = event.target.closest('[data-sync]')?.dataset.sync;
+      if (!choice) return;
+      if (choice === 'export') { download('scorecard-device-backup.json', JSON.stringify({ ...state, bouts: state.history }, null, 2)); return; }
+      if (choice !== 'later') {
+        if (!confirm(choice === 'cloud' ? 'Replace the device copy with the cloud copy? A device backup will be retained.' : 'Replace the cloud copy with this device’s current save?')) return;
+        try { cloud.resolve(choice === 'cloud'); } catch (error) { alert(error.message); return; }
+      }
+      panel.remove();
+    });
+    document.body.append(panel);
   }
 
   /* ---------------- scoring engine (10-point must) ---------------- */
@@ -187,7 +252,12 @@
   /* ---------------- actions ---------------- */
 
   const ACTIONS = {
-    "history-open": () => { ui.historyOpen = true; ui.viewBout = null; renderOverlays(); },
+    'sync-retry': reviewSync,
+    'history-import': () => $('#history-file').click(),
+    'history-migrate': migrateBrowser,
+    'history-prev': () => { ui.historyPage = Math.max(0, ui.historyPage - 1); renderOverlays(); },
+    'history-next': () => { ui.historyPage++; renderOverlays(); },
+    "history-open": () => { ui.historyOpen = true; ui.historyPage = 0; ui.viewBout = null; renderOverlays(); },
     "history-close": () => { ui.historyOpen = false; ui.viewBout = null; renderOverlays(); },
     "history-view": (el) => { ui.historyOpen = true; ui.viewBout = state.history.find((b) => b.id === el.dataset.id); renderOverlays(); },
     "history-back": () => { ui.viewBout = null; renderOverlays(); },
@@ -203,7 +273,7 @@
       if (b) exportBout(b);
     },
     "export-all": () => {
-      const payload = { exportedAt: new Date().toISOString(), bouts: state.history };
+      const payload = { exportedAt: new Date().toISOString(), bouts: state.history, active: state.active, prefs: state.prefs };
       download("scorecard-history.json", JSON.stringify(payload, null, 2));
     },
     "new-bout": () => {
@@ -221,7 +291,7 @@
     "end-submit": () => finishBout(),
     "round-next": () => nextRound(),
     "round-save": () => saveEdit(),
-    "round-cancel": () => { editingIdx = null; draft = emptyDraft(); render(); },
+    "round-cancel": () => { editingIdx = null; draft = emptyDraft(); persist(); render(); },
     "set-winner": (el) => setWinner(el.dataset.side),
     "kd": (el) => kdTick(el.dataset.side),
     "ded": (el) => dedTick(el.dataset.side, el.dataset.dir),
@@ -292,7 +362,7 @@
     const r = b.rounds[idx];
     draft = { winner: r.winner, kd: { ...r.kd }, ded: { ...r.ded } };
     editingIdx = idx;
-    render();
+    persist(); render();
   }
 
   function saveEdit() {
@@ -338,15 +408,17 @@
       if (!rnd || rnd < 1 || rnd > (b.roundsTotal || 99)) { alert("Enter the round of the stoppage (1–" + (b.roundsTotal || 12) + ")."); return; }
     }
 
-    // Commit any uncommitted scoring.
-    if (!draftEmpty(draft)) b.rounds.push({ winner: draft.winner, kd: { ...draft.kd }, ded: { ...draft.ded } });
-    b.draft = null; draft = emptyDraft(); editingIdx = null;
+    // Restore an in-progress edit correctly when finishing from another device.
+    if (editingIdx !== null) {
+      if (draftEmpty(draft)) b.rounds.splice(editingIdx, 1);
+      else b.rounds[editingIdx] = { winner: draft.winner, kd: { ...draft.kd }, ded: { ...draft.ded } };
+    } else if (!draftEmpty(draft)) b.rounds.push({ winner: draft.winner, kd: { ...draft.kd }, ded: { ...draft.ded } });
+    b.draft = null; b.editingIdx = null; draft = emptyDraft(); editingIdx = null;
 
     b.result = { type, winner: winner || null, round: rnd, note };
     b.status = "done";
     b.endedAt = new Date().toISOString();
     state.history.unshift(b);
-    if (state.history.length > MAX_HISTORY) state.history.length = MAX_HISTORY;
     state.active = null;
     stopTimer();
     ui.endOpen = false;
@@ -383,7 +455,7 @@
 
   /* ---------------- ui state ---------------- */
 
-  const ui = { historyOpen: false, viewBout: null, endOpen: false, kd: null };
+  const ui = { historyOpen: false, historyPage: 0, viewBout: null, endOpen: false, kd: null };
 
   /* ---------------- rendering ---------------- */
 
@@ -456,6 +528,7 @@
         <p>Score the bout round by round on the 10-point must. Tick knockdowns, deductions and who took the round — the card keeps itself.</p>
       </div>
       ${bannerHTML}
+      <div class="migration-hint"><span>Have scorecards from before cloud saves?</span> <button class="btn btn-sm" data-action="history-migrate">Import old browser data</button> <button class="btn btn-sm" data-action="history-import">Import JSON</button></div>
       <div class="setup-grid">
         <div class="corner-card red">
           <label>Red corner</label>
@@ -752,7 +825,7 @@
         }).join("");
         const res = b.result;
         const resHTML = res ? `<div class="detail-result">
-          <div class="who">${res.winner ? (res.winner === "red" ? b.red.name : b.blue.name) : "No winner"}</div>
+          <div class="who">${res.winner ? esc(res.winner === "red" ? b.red.name : b.blue.name) : "No winner"}</div>
           <div class="how">${res.type}${res.round ? " · round " + res.round : ""}${res.note ? " · " + esc(res.note) : ""}</div>
           <div class="how">Final card ${t.red}–${t.blue}</div>
         </div>` : "";
@@ -776,8 +849,9 @@
           </div>
         </div></div>`;
       } else {
+        ui.historyPage = Math.min(ui.historyPage, Math.max(0, Math.ceil(state.history.length / 20) - 1));
         const rows = state.history.length
-          ? state.history.map((b) => {
+          ? state.history.slice(ui.historyPage * 20, (ui.historyPage + 1) * 20).map((b) => {
               const t = totalsOf(b);
               const res = b.result ? b.result.type + (b.result.round ? " R" + b.result.round : "") : "—";
               const drawish = b.result && (b.result.type === "Draw" || b.result.type === "NC");
@@ -799,7 +873,10 @@
           <div class="overlay-head"><h2>Bout history</h2><button class="icon-btn" data-action="history-close" title="Close">×</button></div>
           ${rows}
           <div class="modal-actions">
-            <button class="btn" data-action="export-all" ${state.history.length ? "" : "disabled"}>Export all JSON</button>
+            ${state.history.length > 20 ? `<button class="btn" data-action="history-prev" ${ui.historyPage === 0 ? 'disabled' : ''}>Previous</button><span>${ui.historyPage + 1} / ${Math.ceil(state.history.length / 20)}</span><button class="btn" data-action="history-next" ${(ui.historyPage + 1) * 20 >= state.history.length ? 'disabled' : ''}>Next</button>` : ''}
+            <button class="btn" data-action="history-import">Import JSON</button>
+            <button class="btn" data-action="history-migrate">Import old browser data</button>
+            <button class="btn" data-action="export-all" ${state.history.length || state.active ? "" : "disabled"}>Export all JSON</button>
           </div>
         </div></div>`;
       }
@@ -859,7 +936,7 @@
       <tbody>${rows}</tbody>
       <tfoot><tr><th colspan="2">Total</th><th>${t.red}</th><th>${t.blue}</th></tr></tfoot>
     </table>
-    <div class="print-result">${b.result ? `${b.result.winner ? (b.result.winner === "red" ? b.red.name : b.blue.name) + " wins by " : ""}${b.result.type}${b.result.round ? " (round " + b.result.round + ")" : ""} — ${t.red}–${t.blue}` : ""}</div>`;
+    <div class="print-result">${b.result ? `${b.result.winner ? esc(b.result.winner === "red" ? b.red.name : b.blue.name) + " wins by " : ""}${b.result.type}${b.result.round ? " (round " + b.result.round + ")" : ""} — ${t.red}–${t.blue}` : ""}</div>`;
   }
 
   /* ----- keyboard shortcuts ----- */
@@ -879,6 +956,7 @@
   document.addEventListener("click", (e) => {
     const el = e.target.closest("[data-action]");
     if (!el) return;
+    if (!cloud.user && el.dataset.action !== 'sync-retry') return;
     const fn = ACTIONS[el.dataset.action];
     if (fn) { e.preventDefault(); fn(el); }
   });
@@ -889,6 +967,19 @@
   window.__scorecard = { get timer() { return timer; }, state, draft: () => draft, ui };
 
   // Restore a stale in-progress draft pointer.
-  if (state.active) draft = state.active.draft || emptyDraft();
-  render();
+  $('#history-file').addEventListener('change', async (event) => {
+    const file = event.target.files[0]; event.target.value = '';
+    if (!file) return;
+    try {
+      if (file.size > MAX_STATE_BYTES) throw new Error('Export is too large to import.');
+      importHistory(JSON.parse(await file.text()));
+    } catch (error) { alert(error.message); }
+  });
+  $('#app').innerHTML = '<div class="screen"><h1>Opening your scorecards…</h1><p>Checking your account and cloud history.</p></div>';
+  cloud.start().then((ready) => {
+    if (!ready) $('#app').innerHTML = '<div class="screen"><h1>Unable to open your account</h1><p>Reconnect and retry to load your personal history.</p><button class="btn" data-action="sync-retry">Retry / sign in</button></div>';
+  });
+  window.addEventListener('online', () => cloud.refresh());
+  window.addEventListener('pagehide', () => cloud.flush());
+  setInterval(() => { if (document.visibilityState === 'visible') cloud.refresh(); }, 30000);
 })();
