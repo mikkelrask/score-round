@@ -901,14 +901,16 @@ import { filterSchedule, groupSchedule } from './schedule-data.js';
     if (image.complete && image.naturalWidth) { frame.classList.add('photo-ready'); renderPhotoSources(); }
   }
   function renderPhotoSources() {
-    const footer = document.getElementById('photo-sources');
-    if (!footer) return;
+    const footers = document.querySelectorAll('.photo-sources');
+    if (!footers.length) return;
     const names = [...document.querySelectorAll('[data-portrait-name]')].filter(node => node.querySelector('.photo-ready')).map(node => node.dataset.portraitName);
     const photos = [...new Set(names)].map(name => ({ name, photo: portraits.values.get(portraitNameKey(name)) })).filter(({ photo }) => photo?.available);
-    footer.hidden = !photos.length;
-    if (!photos.length) { footer.innerHTML = ''; return; }
-    const open = footer.querySelector('details')?.open;
-    footer.innerHTML = `<details ${open ? 'open' : ''}><summary>Photo sources</summary><div class="photo-source-list">${photos.map(({name, photo}) => `<p><strong>${esc(name)}</strong> — <a href="${esc(photo.sourceUrl)}" target="_blank" rel="noopener noreferrer">${esc(photo.title)}</a><br>${esc(photo.author)}${photo.credit ? ' · ' + esc(photo.credit) : ''} · <a href="${esc(photo.licenseUrl)}" target="_blank" rel="noopener noreferrer">${esc(photo.license)}</a>. Cropped and colour tinted.</p>`).join('')}</div></details>`;
+    for (const footer of footers) {
+      footer.hidden = !photos.length;
+      if (!photos.length) { footer.innerHTML = ''; continue; }
+      const open = footer.querySelector('details')?.open;
+      footer.innerHTML = `<details ${open ? 'open' : ''}><summary>Photo sources</summary><div class="photo-source-list">${photos.map(({name, photo}) => `<p><strong>${esc(name)}</strong> — <a href="${esc(photo.sourceUrl)}" target="_blank" rel="noopener noreferrer">${esc(photo.title)}</a><br>${esc(photo.author)}${photo.credit ? ' · ' + esc(photo.credit) : ''} · <a href="${esc(photo.licenseUrl)}" target="_blank" rel="noopener noreferrer">${esc(photo.license)}</a>. Cropped and colour tinted.</p>`).join('')}</div></details>`;
+    }
   }
   function renderPortraits() {
     for (const node of document.querySelectorAll('[data-portrait-name]')) {
@@ -1093,7 +1095,8 @@ import { filterSchedule, groupSchedule } from './schedule-data.js';
           return `<tr><td>${i + 1}</td><td>${r.winner === "red" ? "● Red" : r.winner === "blue" ? "● Blue" : "Even"}${(r.kd.red ? ` · KD×${r.kd.red}` : "")}${(r.kd.blue ? ` · KD×${r.kd.blue}` : "")}${(r.ded.red + r.ded.blue ? " · −1" : "")}</td><td>${s.red}</td><td>${s.blue}</td></tr>`;
         }).join("");
         const res = b.result;
-        const resHTML = res ? `<div class="detail-result">
+        const resHTML = res ? `<div class="detail-result ${res.winner ? 'has-winner' : ''}">
+          ${res.winner ? portraitHTML(b[res.winner].name) : ''}
           <div class="who">${res.winner ? esc(res.winner === "red" ? b.red.name : b.blue.name) : "No winner"}</div>
           <div class="how">${res.type}${res.round ? " · round " + res.round : ""}${res.note ? " · " + esc(res.note) : ""}</div>
           <div class="how">Final card ${t.red}–${t.blue}</div>
@@ -1105,6 +1108,7 @@ import { filterSchedule, groupSchedule } from './schedule-data.js';
           <div class="detail-line"><span>Scheduled</span><b>${b.roundsTotal} rounds</b></div>
           <div class="detail-line"><span>Rounds scored</span><b>${b.rounds.length}</b></div>
           ${resHTML}
+          <footer class="photo-sources no-print" hidden></footer>
           ${judgesHTML(b)}
           <div class="fight-night-host" data-night-card="${esc(b.id)}"></div>
           <table class="print-table" style="width:100%;border-collapse:collapse;font-size:13px">
@@ -1154,6 +1158,8 @@ import { filterSchedule, groupSchedule } from './schedule-data.js';
     }
 
     wrap.innerHTML = html;
+    renderPortraits();
+    renderPhotoSources();
     renderFightNight();
     bindEndModal();
     updatePrintout(); // print target follows the bout being viewed
