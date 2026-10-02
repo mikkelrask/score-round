@@ -4,6 +4,7 @@
    ============================================================ */
 import { CloudSync } from './sync.js';
 import { freshState, validateState, importBouts, MAX_STATE_BYTES } from './data.js';
+import { eligibleCard } from './judging.js';
 import { filterSchedule, groupSchedule } from './schedule-data.js';
 
 (() => {
@@ -266,7 +267,11 @@ import { filterSchedule, groupSchedule } from './schedule-data.js';
     'history-next': () => { ui.historyPage++; renderOverlays(); },
     "history-open": () => { ui.historyOpen = true; ui.historyPage = 0; ui.viewBout = null; renderOverlays(); },
     "history-close": () => { ui.historyOpen = false; ui.viewBout = null; renderOverlays(); },
-    "history-view": (el) => { ui.historyOpen = true; ui.viewBout = state.history.find((b) => b.id === el.dataset.id); renderOverlays(); },
+    "history-view": (el) => { ui.historyOpen = true; ui.viewBout = state.history.find((b) => b.id === el.dataset.id); renderOverlays(); if (eligibleCard(ui.viewBout)) checkJudges(ui.viewBout); },
+    "judges-check": () => checkJudges(ui.viewBout, true),
+    "leaderboard-open": () => { ui.leaderboardOpen = true; loadLeaderboard(); },
+    "leaderboard-close": () => { ui.leaderboardOpen = false; renderOverlays(); },
+    "leaderboard-refresh": () => loadLeaderboard(),
     "history-back": () => { ui.viewBout = null; renderOverlays(); },
     "history-delete": (el) => {
       const b = state.history.find((x) => x.id === el.dataset.id);
@@ -439,6 +444,7 @@ import { filterSchedule, groupSchedule } from './schedule-data.js';
     clearTimeout(bannerTimer);
     bannerTimer = setTimeout(() => { banner = null; render(); }, 8000);
     persist(); render();
+    if (eligibleCard(b)) checkJudges(b);
   }
 
   /* ---------------- export ---------------- */
@@ -462,7 +468,7 @@ import { filterSchedule, groupSchedule } from './schedule-data.js';
 
   /* ---------------- ui state ---------------- */
 
-  const ui = { historyOpen: false, historyPage: 0, viewBout: null, endOpen: false, kd: null };
+  const ui = { leaderboardOpen: false, historyOpen: false, historyPage: 0, viewBout: null, endOpen: false, kd: null };
 
   /* ---------------- rendering ---------------- */
 
@@ -679,7 +685,9 @@ import { filterSchedule, groupSchedule } from './schedule-data.js';
         venue: setup.venue, location: setup.selectedFight.location,
         sourceFight: { provider: 'boxing-data', id: setup.selectedFight.id, eventId: setup.selectedFight.eventId,
           eventTitle: setup.selectedFight.eventTitle, day: setup.selectedFight.day,
-          cornersConfirmed: setup.selectedFight.cornersConfirmed && !setup.cornersSwapped },
+          cornersConfirmed: setup.selectedFight.cornersConfirmed && !setup.cornersSwapped,
+          redFighterId: (setup.cornersSwapped ? setup.selectedFight.blue : setup.selectedFight.red).fighterId || null,
+          blueFighterId: (setup.cornersSwapped ? setup.selectedFight.red : setup.selectedFight.blue).fighterId || null },
       } : {}),
     };
     draft = emptyDraft();
@@ -848,13 +856,61 @@ import { filterSchedule, groupSchedule } from './schedule-data.js';
     </div>`;
   }
 
+  const judging = { cards: new Map(), loading: new Set(), board: null, boardLoading: false, boardError: '' };
+  async function checkJudges(bout, force = false) {
+    if (!bout || !eligibleCard(bout) || judging.loading.has(bout.id) || (!force && judging.cards.has(bout.id))) return;
+    judging.loading.add(bout.id); renderOverlays();
+    try {
+      const deadline = Date.now() + 10000;
+      while (cloud.busy && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 100));
+      await cloud.flush();
+      if (cloud.record.pending || cloud.conflict) throw new Error('Save this card to the cloud before comparing it.');
+      const result = await cloud.api('compare', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: bout.id }), signal: AbortSignal.timeout(15000) });
+      judging.cards.set(bout.id, result);
+    } catch (error) { judging.cards.set(bout.id, { available: false, reason: error.message }); }
+    finally { judging.loading.delete(bout.id); renderOverlays(); }
+  }
+  async function loadLeaderboard() {
+    if (judging.boardLoading) return;
+    judging.boardLoading = true; judging.boardError = ''; renderOverlays();
+    try {
+      for (const bout of state.history.filter(eligibleCard).slice(0, 3)) await checkJudges(bout);
+      judging.board = await cloud.api('leaderboard');
+    } catch (error) { judging.boardError = error.message; }
+    finally { judging.boardLoading = false; renderOverlays(); }
+  }
+  function judgesHTML(bout) {
+    const result = judging.cards.get(bout.id);
+    if (!eligibleCard(bout)) return '<p class="judging-note">Unranked: comparisons require a complete decision card selected from the fight schedule.</p>';
+    return `<section class="judging-panel"><h3>Official judges</h3>
+      ${judging.loading.has(bout.id) ? '<p role="status">Checking official scores…</p>' : result?.available ? `<p class="judging-agreement">${result.agreement.toFixed(1)}% agreement</p>
+      <p class="judging-note">Scores below follow your red–blue corner order. ${esc(result.pairing)}.</p>
+      ${result.scores.map((score, i) => `<div class="detail-line"><span>Judge ${i + 1}</span><b>${score.red}–${score.blue}</b></div>`).join('')}
+      <div class="detail-line"><span>Judges’ average</span><b>${result.average.red.toFixed(1)}–${result.average.blue.toFixed(1)}</b></div>
+      <div class="detail-line"><span>Your card</span><b>${result.totals.red}–${result.totals.blue}</b></div>
+      <p class="judging-note">Average difference: ${result.error.toFixed(2)} points per fighter. Final totals only; round-by-round official scores are not provided.</p>` : `<p>${esc(result?.reason || 'Official scores have not been checked yet.')}</p>`}
+      <button class="btn btn-sm" data-action="judges-check" ${judging.loading.has(bout.id) ? 'disabled' : ''}>Check official scores</button>
+      <button class="btn btn-sm" data-action="leaderboard-open">Leaderboard</button>
+    </section>`;
+  }
+
   /* ----- overlays ----- */
 
   function renderOverlays() {
     const wrap = $("#overlays");
     let html = "";
 
-    if (ui.kd) {
+    if (ui.leaderboardOpen) {
+      html += `<div class="overlay"><div class="overlay-panel" style="width:min(680px,100%)">
+        <div class="overlay-head"><h2>Judges’ agreement</h2><button class="icon-btn" data-action="leaderboard-close" aria-label="Close leaderboard">×</button></div>
+        <p class="judging-note">Average agreement with official final scorecards. Each fight counts once per person; everyone here participates.</p>
+        ${judging.boardLoading ? '<p role="status">Updating comparisons…</p>' : ''}
+        ${judging.boardError ? `<p role="alert">${esc(judging.boardError)}</p>` : ''}
+        ${(judging.board?.rows || []).map(row => `<div class="judging-row"><span>${row.rank}. ${esc(row.name)}${row.you ? ' · you' : ''}</span><strong>${row.agreement.toFixed(1)}%</strong><span>${row.fights} fight${row.fights === 1 ? '' : 's'}</span></div>`).join('') || (!judging.boardLoading ? '<div class="empty-card">No ranked cards yet. Finish a scheduled decision fight and check its official scores.</div>' : '')}
+        <details class="judging-note"><summary>How scores are calculated</summary><p>100% means matching both judges’ averages exactly. Each point of average error per fighter reduces agreement by 100 ÷ rounds. Each fight has equal weight. This measures agreement with the judges, not judging correctness.</p><p>Only full-length decision cards with confirmed fighter pairing and available official totals count. Stoppages, incomplete cards, manual entries and ambiguous results stay unranked. Duplicate cards use the earliest finished card. Comparisons are updated when users open the app or check a card.</p></details>
+        <button class="btn" data-action="leaderboard-refresh" ${judging.boardLoading ? 'disabled' : ''}>Refresh leaderboard</button>
+      </div></div>`;
+    } else if (ui.kd) {
       const side = ui.kd.side;
       const name = state.active[side].name;
       const done = ui.kd.count >= 8;
@@ -871,7 +927,7 @@ import { filterSchedule, groupSchedule } from './schedule-data.js';
       </div>`;
     }
 
-    if (ui.endOpen && state.active) {
+    if (!ui.leaderboardOpen && ui.endOpen && state.active) {
       const b = state.active;
       const t = totalsLive(b);
       const lead = t.red === t.blue ? "" : (t.red > t.blue ? "red" : "blue");
@@ -905,7 +961,7 @@ import { filterSchedule, groupSchedule } from './schedule-data.js';
           <button class="btn btn-gold" data-action="end-submit">Record result</button>
         </div>
       </div></div>`;
-    } else if (ui.historyOpen) {
+    } else if (!ui.leaderboardOpen && ui.historyOpen) {
       if (ui.viewBout) {
         const b = ui.viewBout;
         const t = totalsOf(b);
@@ -926,6 +982,7 @@ import { filterSchedule, groupSchedule } from './schedule-data.js';
           <div class="detail-line"><span>Scheduled</span><b>${b.roundsTotal} rounds</b></div>
           <div class="detail-line"><span>Rounds scored</span><b>${b.rounds.length}</b></div>
           ${resHTML}
+          ${judgesHTML(b)}
           <table class="print-table" style="width:100%;border-collapse:collapse;font-size:13px">
             <thead><tr style="background:var(--bg-2)"><th style="padding:6px;border:1px solid var(--line)">R</th><th style="padding:6px;border:1px solid var(--line)">Winner</th><th style="padding:6px;border:1px solid var(--line)">${esc(b.red.name)}</th><th style="padding:6px;border:1px solid var(--line)">${esc(b.blue.name)}</th></tr></thead>
             <tbody>${rows}</tbody>
@@ -1067,6 +1124,7 @@ import { filterSchedule, groupSchedule } from './schedule-data.js';
   });
   $('#app').innerHTML = '<div class="screen"><h1>Opening your scorecards…</h1><p>Checking your account and cloud history.</p></div>';
   cloud.start().then((ready) => {
+    if (ready) (async () => { for (const bout of state.history.filter(eligibleCard).slice(0, 3)) await checkJudges(bout); })();
     if (!ready) $('#app').innerHTML = '<div class="screen"><h1>Unable to open your account</h1><p>Reconnect and retry to load your personal history.</p><button class="btn" data-action="sync-retry">Retry / sign in</button></div>';
   });
   window.addEventListener('online', () => cloud.refresh());

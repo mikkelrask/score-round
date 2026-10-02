@@ -28,7 +28,7 @@ export function normalizeFight(raw) {
     id: fightId, eventId: id(raw.event?.id),
     eventTitle: text(raw.event?.title) || `${redName} vs ${blueName}`,
     eventDay: scheduleDay(raw.event?.date) || day, day,
-    red: { name: redName }, blue: { name: blueName },
+    red: { name: redName, fighterId: id(first?.fighter_id) }, blue: { name: blueName, fighterId: id(second?.fighter_id) },
     weightClass: text(raw.division?.name), roundsTotal: number(raw.scheduled_rounds, 1, 24),
     roundLen: number(raw.round_length_seconds, 30, 600), cornersConfirmed,
     venue: text(raw.venue), location: text(raw.location || raw.event?.location),

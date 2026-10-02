@@ -168,3 +168,33 @@ test('schedule errors leave manual scoring available', async ({ page }) => {
   await page.locator('[data-model="blueName"]').fill('Manual blue');
   await expect(page.getByRole('button', { name: 'Start the bout' })).toBeEnabled();
 });
+
+test('completed cards reveal paired official totals and the shared leaderboard', async ({ page }) => {
+  await page.route('**/api/compare', route => route.fulfill({ json: { available: true, agreement: 90, error: 1, totals: { red: 98, blue: 92 }, average: { red: 97, blue: 93 }, scores: [{ red: 97, blue: 93 }, { red: 97, blue: 93 }, { red: 97, blue: 93 }], pairing: 'Paired using the official majority decision' } }));
+  await page.route('**/api/leaderboard', route => route.fulfill({ json: { rows: [{ rank: 1, name: 'friend', agreement: 95, fights: 2, you: false }, { rank: 2, name: 'developer', agreement: 90, fights: 1, you: true }] } }));
+  const bout = { ...exportBout, red: { name: 'A Boxer' }, blue: { name: 'B Boxer' }, sourceFight: { provider: 'boxing-data', id: 'fight', eventId: null, eventTitle: 'Test event', day: '2026-10-02', cornersConfirmed: false }, rounds: Array.from({ length: 10 }, (_, i) => ({ winner: i < 8 ? 'red' : 'blue', kd: { red: 0, blue: 0 }, ded: { red: 0, blue: 0 } })) };
+  await page.goto('/'); await expect(page.locator('#sync-status')).toHaveText('Saved to cloud');
+  page.on('dialog', d => d.accept());
+  await page.locator('#history-file').setInputFiles({ name: 'card.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ bouts: [bout] })) });
+  await expect(page.locator('#sync-status')).toHaveText('Saved to cloud');
+  await page.getByRole('button', { name: 'Card', exact: true }).first().click();
+  await expect(page.getByText('90.0% agreement')).toBeVisible();
+  await expect(page.getByText('Judges’ average', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Leaderboard', exact: true }).last().click();
+  await expect(page.getByText('developer · you', { exact: false })).toBeVisible();
+  await expect(page.getByText('95.0%', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Close leaderboard' }).click();
+  await expect(page.getByText('90.0% agreement')).toBeVisible();
+});
+
+test('an unavailable official result keeps a card unranked and can be retried', async ({ page }) => {
+  await page.route('**/api/compare', route => route.fulfill({ json: { available: false, reason: 'Official result is not available yet.' } }));
+  page.on('dialog', d => d.accept());
+  const bout = { ...exportBout, sourceFight: { provider: 'boxing-data', id: 'pending', eventId: null, eventTitle: 'Test event', day: '2026-10-02', cornersConfirmed: false }, rounds: Array.from({ length: 10 }, () => exportBout.rounds[0]) };
+  await page.goto('/'); await expect(page.locator('#sync-status')).toHaveText('Saved to cloud');
+  await page.locator('#history-file').setInputFiles({ name: 'pending.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ bouts: [bout] })) });
+  await expect(page.locator('#sync-status')).toHaveText('Saved to cloud');
+  await page.getByRole('button', { name: 'Card', exact: true }).first().click();
+  await expect(page.getByText('Official result is not available yet.')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Check official scores' })).toBeEnabled();
+});
