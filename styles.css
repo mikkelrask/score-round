@@ -1025,3 +1025,12 @@ select.field { appearance: none; background-image: linear-gradient(45deg, transp
 @media (max-width: 480px) { .fight-night-panel { padding: 16px 12px; } .night-heading { flex-wrap: wrap; } .night-rounds { grid-template-columns: minmax(0,1fr); } }
 .night-scroll-hint { display: none; color: var(--dim); font-size: 10px; }
 @media (max-width: 760px) { .night-scroll-hint { display: block; } }
+
+/* Saved winners reuse the same photo beneath the result's gold wash. */
+.detail-result { position: relative; isolation: isolate; overflow: hidden; }
+.detail-result.has-winner { min-height: 180px; display: flex; flex-direction: column; justify-content: flex-end; padding: 24px 16px; }
+.detail-result .portrait-frame::after { background: linear-gradient(180deg,rgba(239,206,135,.25),rgba(66,48,24,.55) 45%,rgba(17,25,39,.96)); }
+.detail-result .portrait-image { object-position: center 30%; }
+.detail-result .who { color: var(--gold); text-shadow: 0 1px 5px #101c30; }
+.detail-result .how { color: var(--ink); text-shadow: 0 1px 5px #101c30; overflow-wrap: anywhere; }
+.overlay-panel > .photo-sources { margin: 10px 0 18px; padding: 0; }
