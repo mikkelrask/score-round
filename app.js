@@ -4,6 +4,7 @@
    ============================================================ */
 import { CloudSync } from './sync.js';
 import { freshState, validateState, importBouts, MAX_STATE_BYTES } from './data.js';
+import { filterSchedule, groupSchedule } from './schedule-data.js';
 
 (() => {
   "use strict";
@@ -252,6 +253,12 @@ import { freshState, validateState, importBouts, MAX_STATE_BYTES } from './data.
   /* ---------------- actions ---------------- */
 
   const ACTIONS = {
+    'schedule-toggle': () => { schedule.open = !schedule.open; render(); if (schedule.open && !schedule.result) loadSchedule(); },
+    'schedule-retry': () => loadSchedule(),
+    'schedule-filter': (el) => { schedule.period = el.dataset.period; renderSchedulePicker(); },
+    'schedule-select': (el) => selectScheduledFight(el.dataset.id),
+    'schedule-clear': () => { setup.selectedFight = null; setup.redName = ''; setup.blueName = ''; setup.weight = ''; setup.venue = ''; setup.roundsConfirmed = true; setup.roundLenConfirmed = true; render(); },
+    'swap-corners': () => { [setup.redName, setup.blueName] = [setup.blueName, setup.redName]; setup.cornersSwapped = !setup.cornersSwapped; render(); },
     'sync-retry': reviewSync,
     'history-import': () => $('#history-file').click(),
     'history-migrate': migrateBrowser,
@@ -470,6 +477,7 @@ import { freshState, validateState, importBouts, MAX_STATE_BYTES } from './data.
       stopTimer();
     }
     bindSetup();
+    renderSchedulePicker();
     updatePrintout();
     renderOverlays(); // keep modals/overlays in sync with state changes
   }
@@ -491,14 +499,82 @@ import { freshState, validateState, importBouts, MAX_STATE_BYTES } from './data.
 
   /* ----- setup ----- */
 
-  const setup = { redName: "", blueName: "", weight: "", venue: "" };
+  const setup = { redName: "", blueName: "", weight: "", venue: "", selectedFight: null, roundsConfirmed: true, roundLenConfirmed: true, cornersSwapped: false };
+  const schedule = { open: false, loading: false, result: null, error: '', period: 'weekend', query: '' };
+
+  function scheduleDate(day) {
+    return new Date(`${day}T12:00:00Z`).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
+  }
+
+  async function loadSchedule() {
+    if (schedule.loading) return;
+    schedule.loading = true; schedule.error = ''; renderSchedulePicker();
+    try { schedule.result = await cloud.api('schedule', { signal: AbortSignal.timeout(28000) }); }
+    catch (error) { schedule.error = error.message; }
+    finally { schedule.loading = false; renderSchedulePicker(); }
+  }
+
+  function renderSchedulePicker() {
+    const target = $('#schedule-content');
+    if (!target || !schedule.open) return;
+    if (!schedule.result) {
+      target.innerHTML = schedule.loading
+        ? '<p class="schedule-message" role="status">Loading the fight card…</p>'
+        : `<div class="schedule-message" role="status"><p>${esc(schedule.error || 'Choose a fight from the next seven days.')}</p><button class="btn btn-sm" data-action="schedule-retry">Try again</button><span> Or enter the fight details below.</span></div>`;
+      return;
+    }
+    target.innerHTML = `<div class="schedule-tools">
+      <div class="schedule-periods" role="group" aria-label="Schedule dates">
+        ${[['today', 'Today'], ['weekend', 'This weekend'], ['week', 'Next 7 days']].map(([value, label]) => `<button class="btn btn-sm ${schedule.period === value ? 'btn-gold' : 'btn-ghost'}" data-action="schedule-filter" data-period="${value}" aria-pressed="${schedule.period === value}">${label}</button>`).join('')}
+      </div>
+      <label class="schedule-search"><span class="sr-only">Find a fighter or event</span><input class="field" id="schedule-search" placeholder="Find a fighter or event" value="${esc(schedule.query)}" type="search" autocomplete="off"></label>
+    </div>
+    ${schedule.error || schedule.result.notice ? `<p class="schedule-notice" role="status">${esc(schedule.error || schedule.result.notice)}</p>` : ''}
+    ${schedule.result.partial ? '<p class="schedule-notice">Some bouts could not be loaded. You can enter missing fights below.</p>' : ''}
+    <div id="schedule-rows"></div>
+    <div class="schedule-footer"><span>Dates as listed by Boxing Data. Coverage varies; add missing bouts manually.${schedule.result.stale ? ' Showing a saved schedule.' : ''}</span><button class="btn btn-sm btn-ghost" data-action="schedule-retry" ${schedule.loading ? 'disabled' : ''}>${schedule.loading ? 'Checking…' : 'Check schedule'}</button></div>`;
+    $('#schedule-search').addEventListener('input', (event) => { schedule.query = event.target.value; renderScheduleRows(); });
+    renderScheduleRows();
+  }
+
+  function renderScheduleRows() {
+    const target = $('#schedule-rows'); if (!target || !schedule.result) return;
+    const fights = filterSchedule(schedule.result.fights, schedule.period, schedule.query);
+    const groups = groupSchedule(fights);
+    target.innerHTML = groups.length ? groups.map((event) => `<section class="schedule-event">
+      <div class="schedule-event-head"><h3>${esc(event.title)}</h3><span><time datetime="${event.day}">${scheduleDate(event.day)}</time>${event.location ? ' · ' + esc(event.location) : ''}</span></div>
+      ${event.fights.map((fight) => `<button class="scheduled-bout" data-action="schedule-select" data-id="${fight.id}" aria-label="Select ${esc(fight.red.name)} vs ${esc(fight.blue.name)}">
+        <span class="scheduled-fighters"><strong>${esc(fight.red.name)}</strong><span class="scheduled-vs">vs</span><strong>${esc(fight.blue.name)}</strong></span>
+        <span class="scheduled-details">${esc(fight.weightClass || 'Weight class not supplied')} · ${fight.roundsTotal ? fight.roundsTotal + ' rounds' : 'Rounds not supplied'}</span>
+        <span class="scheduled-select">Select</span>
+      </button>`).join('')}</section>`).join('')
+      : `<p class="schedule-message">${schedule.query ? 'No matching fights in this date range. Try another name or Next 7 days.' : schedule.period === 'today' ? 'No fights listed for today. Check This weekend or Next 7 days, or enter a bout below.' : 'No fights listed for this date range. Check Next 7 days or enter a bout below.'}</p>`;
+  }
+
+  function selectScheduledFight(id) {
+    const fight = schedule.result?.fights.find((f) => f.id === id); if (!fight || state.active) return;
+    setup.selectedFight = fight; setup.cornersSwapped = false;
+    setup.redName = fight.red.name; setup.blueName = fight.blue.name;
+    setup.weight = fight.weightClass; setup.venue = fight.venue;
+    setup.roundsConfirmed = Boolean(fight.roundsTotal); setup.roundLenConfirmed = Boolean(fight.roundLen);
+    if (fight.roundsTotal) state.prefs.rounds = fight.roundsTotal;
+    if (fight.roundLen) state.prefs.roundLen = fight.roundLen;
+    schedule.open = false; persist(); render();
+    $('#start-bout').scrollIntoView({ block: 'nearest' });
+  }
+
+  function setupReady() {
+    return Boolean(setup.redName.trim() && setup.blueName.trim() && setup.roundsConfirmed && setup.roundLenConfirmed);
+  }
 
   function setupHTML() {
-    const roundsSel = [4, 6, 8, 10, 12]
-      .map((n) => `<option value="${n}"${n === state.prefs.rounds ? " selected" : ""}>${n} rounds</option>`).join("");
-    const lenSel = [
+    const roundsSel = (setup.roundsConfirmed ? '' : '<option value="" selected>Choose rounds</option>') + [...new Set([4, 6, 8, 10, 12, state.prefs.rounds])].sort((a, b) => a - b)
+      .map((n) => `<option value="${n}"${n === state.prefs.rounds && setup.roundsConfirmed ? " selected" : ""}>${n} rounds</option>`).join("");
+    const lengths = [
       [180, "3:00 · pro men"], [120, "2:00 · women"], [90, "1:30 · amateur"],
-    ].map(([v, l]) => `<option value="${v}"${v === state.prefs.roundLen ? " selected" : ""}>${l}</option>`).join("");
+    ];
+    if (!lengths.some(([v]) => v === state.prefs.roundLen)) lengths.push([state.prefs.roundLen, fmtClock(state.prefs.roundLen)]);
+    const lenSel = (setup.roundLenConfirmed ? '' : '<option value="" selected>Choose round length</option>') + lengths.map(([v, l]) => `<option value="${v}"${v === state.prefs.roundLen && setup.roundLenConfirmed ? " selected" : ""}>${l}</option>`).join("");
 
     const bannerHTML = banner
       ? `<div class="banner"><div class="banner-main">${esc(banner.text)}</div><div class="banner-sub">${esc(banner.sub)}</div></div>`
@@ -528,7 +604,12 @@ import { freshState, validateState, importBouts, MAX_STATE_BYTES } from './data.
         <p>Score the bout round by round on the 10-point must. Tick knockdowns, deductions and who took the round — the card keeps itself.</p>
       </div>
       ${bannerHTML}
+      <section class="schedule-picker" aria-label="Scheduled fights">
+        <div class="schedule-heading"><div><h2>From the fight card</h2><p>Select a scheduled bout to fill in the details.</p></div><button class="btn" data-action="schedule-toggle" aria-expanded="${schedule.open}" aria-controls="schedule-content">${schedule.open ? 'Hide schedule' : 'Browse fights'}</button></div>
+        <div id="schedule-content" ${schedule.open ? '' : 'hidden'}></div>
+      </section>
       <div class="migration-hint"><span>Have scorecards from before cloud saves?</span> <button class="btn btn-sm" data-action="history-migrate">Import old browser data</button> <button class="btn btn-sm" data-action="history-import">Import JSON</button></div>
+      ${setup.selectedFight ? `<div class="selected-fight"><div><strong>${esc(setup.selectedFight.eventTitle)}</strong><span>${scheduleDate(setup.selectedFight.eventDay)}${setup.venue ? ' · ' + esc(setup.venue) : ''}</span></div><button class="btn btn-sm btn-ghost" data-action="schedule-clear">Clear selection</button><p>${setup.cornersSwapped ? 'Corners swapped. Check the broadcast before scoring.' : setup.selectedFight.cornersConfirmed ? 'Corner assignments supplied by the schedule.' : 'Corner assignments are not supplied. Swap corners to match the broadcast.'}${!setup.selectedFight.roundsTotal ? ' Choose the scheduled number of rounds.' : ''}${!setup.selectedFight.weightClass ? ' Weight class is not supplied; enter it below if known.' : ''}${!setup.selectedFight.roundLen ? ' Choose the round length before starting.' : ''}</p></div>` : ''}
       <div class="setup-grid">
         <div class="corner-card red">
           <label>Red corner</label>
@@ -545,6 +626,7 @@ import { freshState, validateState, importBouts, MAX_STATE_BYTES } from './data.
         </div>
       </div>
       <div class="setup-actions">
+        <button class="btn" data-action="swap-corners" ${setup.redName || setup.blueName ? '' : 'disabled'}>Swap corners</button>
         <button class="btn btn-gold" id="start-bout" style="padding:14px 28px;font-size:15px">Start the bout</button>
       </div>
       <div class="how-box">
@@ -564,19 +646,21 @@ import { freshState, validateState, importBouts, MAX_STATE_BYTES } from './data.
           if (model === "redName") setup.redName = el.value;
           else if (model === "blueName") setup.blueName = el.value;
           else if (model === "weight") setup.weight = el.value;
-          else if (model === "rounds") { state.prefs.rounds = +el.value; persist(); }
-          else if (model === "roundLen") { state.prefs.roundLen = +el.value; persist(); }
+          else if (model === "rounds") { setup.roundsConfirmed = Boolean(el.value); if (el.value) { state.prefs.rounds = +el.value; persist(); } }
+          else if (model === "roundLen") { setup.roundLenConfirmed = Boolean(el.value); if (el.value) { state.prefs.roundLen = +el.value; persist(); } }
           const btn = $("#start-bout");
-          if (btn) btn.disabled = !setup.redName.trim() || !setup.blueName.trim();
+          if (btn) btn.disabled = !setupReady();
+          const swap = $('[data-action="swap-corners"]'); if (swap) swap.disabled = !setup.redName && !setup.blueName;
         });
       });
       const btn = $("#start-bout");
-      btn.disabled = !setup.redName.trim() || !setup.blueName.trim();
+      btn.disabled = !setupReady();
       btn.addEventListener("click", startBout);
     }
   }
 
   function startBout() {
+    if (!setupReady()) return;
     const red = setup.redName.trim() || "Red corner";
     const blue = setup.blueName.trim() || "Blue corner";
     state.active = {
@@ -591,6 +675,12 @@ import { freshState, validateState, importBouts, MAX_STATE_BYTES } from './data.
       date: new Date().toISOString(),
       startedAt: new Date().toISOString(),
       endedAt: null,
+      ...(setup.selectedFight ? {
+        venue: setup.venue, location: setup.selectedFight.location,
+        sourceFight: { provider: 'boxing-data', id: setup.selectedFight.id, eventId: setup.selectedFight.eventId,
+          eventTitle: setup.selectedFight.eventTitle, day: setup.selectedFight.day,
+          cornersConfirmed: setup.selectedFight.cornersConfirmed && !setup.cornersSwapped },
+      } : {}),
     };
     draft = emptyDraft();
     editingIdx = null;
