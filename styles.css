@@ -1035,7 +1035,13 @@ select.field { appearance: none; background-image: linear-gradient(45deg, transp
 .detail-result .how { color: var(--ink); text-shadow: 0 1px 5px #101c30; overflow-wrap: anywhere; }
 .overlay-panel > .photo-sources { margin: 10px 0 18px; padding: 0; }
 
-.lobby-panel { margin-bottom: 24px; padding: 20px 24px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); }
+.fight-options { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 20px; margin-bottom: 24px; align-items: start; }
+.fight-options > .setup-picker { min-width: 0; min-height: 166px; margin: 0; background: #203552; border: 1px solid #476381; border-radius: var(--radius); box-shadow: 0 4px 0 #0c1729; }
+.fight-options .schedule-heading { padding: 22px 24px; min-height: 114px; flex-wrap: nowrap; align-items: center; gap: 16px; }
+.fight-options .schedule-heading > div { min-width: 0; }
+.fight-options .schedule-heading .btn { flex-shrink: 0; width: 132px; min-height: 42px; padding: 10px 12px; font-size: 12px; }
+#lobby-rooms { padding: 0 24px 24px; }
+#lobby-rooms .lobby-note:first-child { margin-top: 0; }
 .lobby-room { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 16px 0; border-top: 1px solid var(--line); }
 .lobby-room strong { font-family: "Barlow Condensed",sans-serif; font-size: 23px; }
 .lobby-room strong span { color: var(--muted); font-size: 15px; }
@@ -1066,4 +1072,7 @@ select.field { appearance: none; background-image: linear-gradient(45deg, transp
 .stats-comparison { display: flex; justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--line); font-size: 12px; }
 .stats-comparison strong { color: var(--gold); }
 .stats-comparison small { display: block; color: var(--muted); margin-top: 4px; }
-@media (max-width: 480px) { .lobby-panel { padding: 16px; } .lobby-room { flex-wrap: wrap; } .stats-metrics { grid-template-columns: repeat(2,minmax(0,1fr)); } .fighter-profile-banner { padding: 20px 16px; } }
+@media (max-width: 480px) { .lobby-room { flex-wrap: wrap; } .stats-metrics { grid-template-columns: repeat(2,minmax(0,1fr)); } .fighter-profile-banner { padding: 20px 16px; } }
+
+@media (max-width: 900px) { .fight-options { grid-template-columns: minmax(0,1fr); } }
+@media (max-width: 480px) { .fight-options .schedule-heading { padding: 20px; flex-wrap: wrap; min-height: 0; } #lobby-rooms { padding: 0 20px 20px; } }
