@@ -68,3 +68,40 @@ The old 50-fight cap is removed; History shows 20 cards per page. Account snapsh
 are limited to 1.5 MB to stay within D1's row limits. A limit or storage error is
 shown explicitly and never silently drops history. Keep periodic JSON exports as
 an independent backup; D1 also provides Time Travel recovery.
+
+## Scheduled fights
+
+**Browse fights** loads the Boxing Data API's seven-day schedule, grouped by event.
+Today, This weekend (Friday through Sunday), and Next 7 days filter the shared
+list without making more provider requests. Search matches fighters, events,
+weight classes and locations. Exact start times are omitted because the provider
+returns dates without an explicit timezone; calendar dates are shown as supplied.
+
+Selecting a bout fills the names, supplied weight class, and scheduled rounds.
+Unknown rounds and round length must be selected before scoring. Fighter 1/2
+ordering is not treated as verified red/blue corner assignment; **Swap corners**
+matches the broadcast. The selected provider fight ID is stored separately from
+the user's independent scorecard ID. Clear selection returns to manual entry.
+
+Results, official scores, winner flags, statistics and fight status are removed
+server-side before the schedule is cached or sent to a browser. The free plan's
+listing may not include every undercard; missing bouts remain manually enterable.
+
+Configure `BOXING_RAPIDAPI_KEY` as a Pages secret, not a frontend variable:
+
+```sh
+env -u CLOUDFLARE_API_TOKEN npx wrangler pages secret put BOXING_RAPIDAPI_KEY --project-name boxing-round
+```
+
+For local development, add the same variable to gitignored `.dev.vars`.
+Apply `0002_fight_schedule.sql` locally and remotely before deploying this feature.
+The provider rejected a 14-day request on the supplied subscription but accepted
+seven days, so the application deliberately requests seven.
+
+A shared D1 cache refreshes on demand at most every six hours. A database lease
+prevents simultaneous users from multiplying provider calls. Pagination is capped
+at three pages per refresh, with partial coverage shown explicitly. Remaining
+provider quota is tracked, and the app additionally caps automatic requests at
+80 per calendar month. Failed refreshes are cached temporarily; any saved schedule
+is retained and marked stale. **Check schedule** respects the cache and request
+budget rather than forcing another provider call.

@@ -21,6 +21,12 @@ export function validateBout(b, status = 'done') {
       (b.editingIdx != null && !integer(b.editingIdx, 0, b.rounds.length - 1))) {
     fail('Invalid scorecard. Check the JSON export format.');
   }
+  if (b.sourceFight != null && (!object(b.sourceFight) || b.sourceFight.provider !== 'boxing-data' ||
+      !text(b.sourceFight.id, 100) || !/^[a-zA-Z0-9_-]+$/.test(b.sourceFight.id) ||
+      (b.sourceFight.eventId != null && (!text(b.sourceFight.eventId, 100) || !/^[a-zA-Z0-9_-]+$/.test(b.sourceFight.eventId))) ||
+      !text(b.sourceFight.eventTitle, 200) || !/^\d{4}-\d{2}-\d{2}$/.test(b.sourceFight.day) ||
+      typeof b.sourceFight.cornersConfirmed !== 'boolean')) fail('Invalid scheduled fight reference.');
+  if ((b.venue != null && !text(b.venue, 200)) || (b.location != null && !text(b.location, 200))) fail('Invalid fight location.');
   if (status === 'done' && (!object(b.result) || !date(b.endedAt))) fail('Completed scorecard is missing its result or end date.');
   if (b.result != null && (!object(b.result) ||
       !['UD', 'MD', 'SD', 'Draw', 'KO', 'TKO', 'RTD', 'DQ', 'NC'].includes(b.result.type) ||

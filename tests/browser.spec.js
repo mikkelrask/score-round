@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { freshState } from '../data.js';
+import { normalizeFight } from '../schedule-data.js';
 
 const exportBout = {
   id: 'sample-export', red: { name: 'Pili' }, blue: { name: 'Katie Taylor' }, weightClass: '',
@@ -79,4 +80,91 @@ test('two open devices prompt for a conflict instead of overwriting a scorecard'
   await second.getByRole('button', { name: 'Use cloud copy' }).click();
   expect(await second.evaluate(() => window.__scorecard.state.prefs.rounds)).toBe(12);
   await other.close();
+});
+
+const scheduledFight = normalizeFight({
+  id: 'scheduled-omari', date: '2026-10-03T03:00:00', scheduled_rounds: 8,
+  fighters: { fighter_1: { full_name: 'Omari Jones', winner: true }, fighter_2: { full_name: 'Alan Sanchez', winner: false } },
+  event: { id: 'project-series', title: 'Project Series: Jones vs Sanchez', date: '2026-10-03T00:00:00' },
+  division: { name: 'Super Welterweight' }, venue: 'Caribe Royale Orlando', location: 'Orlando',
+  results: { outcome: 'KO', round: 4 }, status: 'FINISHED', scores: ['secret-score'],
+});
+const missingFight = normalizeFight({
+  id: 'missing-details', date: '2026-10-03T19:00:00',
+  fighters: { fighter_1: { full_name: 'Boxer A' }, fighter_2: { full_name: 'Boxer B' } },
+  event: { id: 'another-card', title: 'Another fight card', date: '2026-10-03' },
+});
+
+async function mockSchedule(page, fights = [scheduledFight, missingFight]) {
+  await page.clock.setFixedTime(new Date('2026-10-02T12:00:00Z'));
+  await page.route('**/api/schedule', (route) => route.fulfill({ json: { fights, days: 7, partial: false, stale: false, notice: null, fetchedAt: '2026-10-02T10:00:00Z' } }));
+  await page.goto('/'); await expect(page.locator('#sync-status')).toHaveText('Saved to cloud');
+  await page.getByRole('button', { name: 'Browse fights' }).click();
+  await expect(page.getByRole('button', { name: 'Select Omari Jones vs Alan Sanchez' })).toBeVisible();
+}
+
+test('a scheduled bout prefills fields, requires unknown round length, swaps corners, and saves its source separately from personal ID', async ({ page }) => {
+  await mockSchedule(page);
+  await page.getByRole('button', { name: 'Select Omari Jones vs Alan Sanchez' }).click();
+  await expect(page.locator('[data-model="redName"]')).toHaveValue('Omari Jones');
+  await expect(page.locator('[data-model="blueName"]')).toHaveValue('Alan Sanchez');
+  await expect(page.locator('[data-model="weight"]')).toHaveValue('Super Welterweight');
+  await expect(page.locator('[data-model="rounds"]')).toHaveValue('8');
+  await expect(page.locator('[data-model="roundLen"]')).toHaveValue('');
+  await expect(page.getByRole('button', { name: 'Start the bout' })).toBeDisabled();
+  await expect(page.getByText('Corner assignments are not supplied.', { exact: false })).toBeVisible();
+  await page.getByRole('button', { name: 'Swap corners' }).click();
+  await expect(page.locator('[data-model="redName"]')).toHaveValue('Alan Sanchez');
+  await page.locator('[data-model="roundLen"]').selectOption('180');
+  await page.getByRole('button', { name: 'Start the bout' }).click();
+  await expect(page.locator('#sync-status')).toHaveText('Saved to cloud');
+  const active = await page.evaluate(() => window.__scorecard.state.active);
+  expect(active.id).not.toBe(scheduledFight.id);
+  expect(active.sourceFight.id).toBe(scheduledFight.id);
+  expect(active.red.name).toBe('Alan Sanchez'); expect(active.roundsTotal).toBe(8);
+  expect(active.result).toBeNull(); expect(active.rounds).toEqual([]);
+  await page.reload(); await expect(page.locator('#sync-status')).toHaveText('Saved to cloud');
+  expect(await page.evaluate(() => window.__scorecard.state.active.sourceFight.id)).toBe(scheduledFight.id);
+});
+
+test('schedule search keeps focus, filters dates, and never displays provider results', async ({ page }) => {
+  await mockSchedule(page);
+  await expect(page.getByRole('heading', { name: 'Another fight card' })).toBeVisible();
+  await page.getByRole('button', { name: 'Today', exact: true }).click();
+  await expect(page.getByText('No fights listed for today.', { exact: false })).toBeVisible();
+  await page.getByRole('button', { name: 'Next 7 days', exact: true }).click();
+  const search = page.getByRole('searchbox', { name: 'Find a fighter or event' });
+  await search.fill('omari'); await expect(search).toBeFocused();
+  await expect(page.getByRole('heading', { name: 'Another fight card' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Select Omari Jones vs Alan Sanchez' })).toBeVisible();
+  expect(await page.locator('#schedule-content').innerText()).not.toMatch(/secret-score|FINISHED|knockout|winner/i);
+});
+
+test('missing rounds remain unconfirmed; fields can be edited or selection cleared for manual entry', async ({ page }) => {
+  await mockSchedule(page);
+  await page.getByRole('button', { name: 'Select Boxer A vs Boxer B' }).click();
+  await expect(page.locator('[data-model="rounds"]')).toHaveValue('');
+  await expect(page.getByRole('button', { name: 'Start the bout' })).toBeDisabled();
+  await expect(page.getByText('Weight class is not supplied', { exact: false })).toBeVisible();
+  await page.locator('[data-model="rounds"]').selectOption('4');
+  await page.locator('[data-model="roundLen"]').selectOption('120');
+  await page.locator('[data-model="weight"]').fill('Lightweight');
+  await expect(page.getByRole('button', { name: 'Start the bout' })).toBeEnabled();
+  await page.getByRole('button', { name: 'Clear selection' }).click();
+  await expect(page.locator('[data-model="redName"]')).toHaveValue('');
+  await page.locator('[data-model="redName"]').fill('Manual red');
+  await page.locator('[data-model="blueName"]').fill('Manual blue');
+  await page.getByRole('button', { name: 'Start the bout' }).click();
+  await expect(page.locator('#sync-status')).toHaveText('Saved to cloud');
+  expect(await page.evaluate(() => window.__scorecard.state.active.sourceFight)).toBeUndefined();
+});
+
+test('schedule errors leave manual scoring available', async ({ page }) => {
+  await page.route('**/api/schedule', (route) => route.fulfill({ status: 503, json: { error: 'The schedule connection is unavailable. You can still enter a fight manually.' } }));
+  await page.goto('/'); await expect(page.locator('#sync-status')).toHaveText('Saved to cloud');
+  await page.getByRole('button', { name: 'Browse fights' }).click();
+  await expect(page.getByText('The schedule connection is unavailable.', { exact: false })).toBeVisible();
+  await page.locator('[data-model="redName"]').fill('Manual red');
+  await page.locator('[data-model="blueName"]').fill('Manual blue');
+  await expect(page.getByRole('button', { name: 'Start the bout' })).toBeEnabled();
 });
