@@ -606,15 +606,27 @@ import { filterSchedule, groupSchedule } from './schedule-data.js';
 
     return `<div class="screen">
       <div class="setup-head">
-        <h1>Seconds out</h1>
-        <p>Score the bout round by round on the 10-point must. Tick knockdowns, deductions and who took the round — the card keeps itself.</p>
+        <div><h1>Seconds<br>out.</h1><p>Your seat at ringside. Call each round, keep your card, and see how you stack up with the judges.</p></div>
+        <div class="ring-art" aria-hidden="true">
+          <svg viewBox="0 0 460 310" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M37 218 225 291 425 216 236 148Z" fill="#0a1526"/>
+            <path d="M40 179 225 244 422 172 236 109Z" fill="#253e5c" stroke="#58728e" stroke-width="2"/>
+            <path d="M40 179v36l185 66v-37M225 281l197-73v-36" fill="#192c46" stroke="#58728e" stroke-width="2"/>
+            <path d="M40 118 225 185 422 112 236 49 40 118ZM40 99l185 66 197-72-186-64L40 99ZM40 80l185 67 197-73-186-64L40 80Z" stroke="#d8e2ef" stroke-width="3" stroke-linejoin="round"/>
+            <path d="M40 68v116M236 0v111M422 60v117M225 133v114" stroke="#a6b9cf" stroke-width="7"/>
+            <path d="M40 85v58" stroke="#f35b63" stroke-width="13"/><path d="M422 79v58" stroke="#4c9eff" stroke-width="13"/>
+            <path d="m185 179 42-16 39 14-40 16-41-14Z" stroke="#efce87" stroke-width="2"/>
+            <path d="M67 222v14l42 15v14" stroke="#58728e" stroke-width="7"/>
+          </svg>
+          <span class="ring-caption">Your corner. Your call.</span>
+        </div>
       </div>
       ${bannerHTML}
       <section class="schedule-picker" aria-label="Scheduled fights">
         <div class="schedule-heading"><div><h2>From the fight card</h2><p>Select a scheduled bout to fill in the details.</p></div><button class="btn" data-action="schedule-toggle" aria-expanded="${schedule.open}" aria-controls="schedule-content">${schedule.open ? 'Hide schedule' : 'Browse fights'}</button></div>
         <div id="schedule-content" ${schedule.open ? '' : 'hidden'}></div>
       </section>
-      <div class="migration-hint"><span>Have scorecards from before cloud saves?</span> <button class="btn btn-sm" data-action="history-migrate">Import old browser data</button> <button class="btn btn-sm" data-action="history-import">Import JSON</button></div>
+
       ${setup.selectedFight ? `<div class="selected-fight"><div><strong>${esc(setup.selectedFight.eventTitle)}</strong><span>${scheduleDate(setup.selectedFight.eventDay)}${setup.venue ? ' · ' + esc(setup.venue) : ''}</span></div><button class="btn btn-sm btn-ghost" data-action="schedule-clear">Clear selection</button><p>${setup.cornersSwapped ? 'Corners swapped. Check the broadcast before scoring.' : setup.selectedFight.cornersConfirmed ? 'Corner assignments supplied by the schedule.' : 'Corner assignments are not supplied. Swap corners to match the broadcast.'}${!setup.selectedFight.roundsTotal ? ' Choose the scheduled number of rounds.' : ''}${!setup.selectedFight.weightClass ? ' Weight class is not supplied; enter it below if known.' : ''}${!setup.selectedFight.roundLen ? ' Choose the round length before starting.' : ''}</p></div>` : ''}
       <div class="setup-grid">
         <div class="corner-card red">
@@ -640,6 +652,7 @@ import { filterSchedule, groupSchedule } from './schedule-data.js';
         <div><b>10–8</b> a knockdown or deduction costs that fighter a point — two downs is <code>10–7</code>.</div>
         <div><b>10–10</b> an even round. Down in a round you win? The point still comes off.</div>
       </div>
+      <div class="migration-hint"><span>Bring your previous cards</span><button class="btn btn-sm" data-action="history-migrate">Import old browser data</button><button class="btn btn-sm" data-action="history-import">Import JSON</button></div>
       ${recent ? `<div class="panel" style="margin-top:26px"><div class="panel-title">Recent bouts</div>${recent}</div>` : ""}
     </div>`;
   }
