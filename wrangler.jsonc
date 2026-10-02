@@ -1,0 +1,15 @@
+{
+  "name": "boxing-round",
+  "pages_build_output_dir": "dist",
+  "compatibility_date": "2026-04-08",
+  "vars": {
+    "ACCESS_TEAM_DOMAIN": "uacsoft.cloudflareaccess.com",
+    "ACCESS_AUD": "012454418e5dd15e90db24e7fa233daeec4dcff0e389cfcbbc290533f309cfb8"
+  },
+  "d1_databases": [{
+    "binding": "DB",
+    "database_name": "boxing-round",
+    "database_id": "8e31390f-4c6a-42de-8d97-58f190d24998",
+    "migrations_dir": "migrations"
+  }]
+}
