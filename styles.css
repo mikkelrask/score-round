@@ -1034,3 +1034,36 @@ select.field { appearance: none; background-image: linear-gradient(45deg, transp
 .detail-result .who { color: var(--gold); text-shadow: 0 1px 5px #101c30; }
 .detail-result .how { color: var(--ink); text-shadow: 0 1px 5px #101c30; overflow-wrap: anywhere; }
 .overlay-panel > .photo-sources { margin: 10px 0 18px; padding: 0; }
+
+.lobby-panel { margin-bottom: 24px; padding: 20px 24px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); }
+.lobby-room { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 16px 0; border-top: 1px solid var(--line); }
+.lobby-room strong { font-family: "Barlow Condensed",sans-serif; font-size: 23px; }
+.lobby-room strong span { color: var(--muted); font-size: 15px; }
+.lobby-room p, .lobby-note { color: var(--muted); font-size: 12px; line-height: 1.6; margin: 6px 0; }
+.fighter-link { border: 0; padding: 3px 0; color: var(--ink); background: transparent; cursor: pointer; font: 600 10px/1.4 "Manrope",sans-serif; text-decoration: underline; text-underline-offset: 3px; text-transform: none; letter-spacing: 0; }
+.corner-card > .fighter-link { position: absolute; top: 20px; right: 18px; text-shadow: 0 1px 5px #101c30; }
+.corner-tag .fighter-link { margin-left: 8px; }
+.card-profile-links { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.card-profile-links .btn { white-space: normal; text-align: left; }
+.fighter-profile-banner { position: relative; isolation: isolate; overflow: hidden; min-height: 220px; display: flex; flex-direction: column; justify-content: end; padding: 24px; background: var(--bg); border-radius: var(--radius); }
+.fighter-profile-banner .portrait-frame::after { background: linear-gradient(180deg,rgba(16,28,48,.12),rgba(16,28,48,.6) 55%,rgba(16,28,48,.98)); }
+.fighter-profile-banner h3 { margin: 0; font: 700 36px/1.1 "Barlow Condensed",sans-serif; }
+.fighter-profile-banner p { margin: 8px 0 0; color: var(--gold); font-size: 13px; }
+.fighter-record { font: 700 42px/1.2 "Barlow Condensed",sans-serif; margin: 22px 0; color: var(--gold); }
+.fighter-record span { display: block; color: var(--muted); font: 12px/1.6 "Manrope",sans-serif; }
+.stats-metrics { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; margin: 18px 0; }
+.stats-metrics > div { padding: 16px 12px; border-bottom: 2px solid var(--line); background: var(--bg); }
+.stats-metrics strong { display: block; color: var(--gold); font: 700 38px/1.2 "Barlow Condensed",sans-serif; }
+.stats-metrics span { color: var(--muted); font-size: 11px; }
+.stats-title { font: 700 27px/1.2 "Barlow Condensed",sans-serif; margin: 24px 0 8px; }
+.stats-trend-scroll { overflow-x: auto; margin: 20px 0; }
+.stats-trend { display: flex; align-items: end; gap: 14px; padding: 4px 0; }
+.stats-month { text-align: center; flex: 1; min-width: 64px; font-size: 11px; }
+.stats-month strong { color: var(--gold); }
+.stats-bar-track { height: 120px; margin: 8px auto; background: var(--bg); width: 30px; display: flex; align-items: end; }
+.stats-bar-track div { width: 100%; background: var(--gold); }
+.stats-month span, .stats-month small { display: block; color: var(--muted); line-height: 1.6; }
+.stats-comparison { display: flex; justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--line); font-size: 12px; }
+.stats-comparison strong { color: var(--gold); }
+.stats-comparison small { display: block; color: var(--muted); margin-top: 4px; }
+@media (max-width: 480px) { .lobby-panel { padding: 16px; } .lobby-room { flex-wrap: wrap; } .stats-metrics { grid-template-columns: repeat(2,minmax(0,1fr)); } .fighter-profile-banner { padding: 20px 16px; } }

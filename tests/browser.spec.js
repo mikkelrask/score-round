@@ -227,11 +227,11 @@ const nightCard = () => ({
   rounds: [], status: 'active', result: null, draft: null, date: '2026-10-02T12:00:00Z', startedAt: '2026-10-02T12:00:00Z', endedAt: null,
   sourceFight: { provider: 'boxing-data', id: 'night-fight', eventId: 'night-event', eventTitle: 'Fight night test', day: '2026-10-02', cornersConfirmed: true },
 });
-async function seedNight(request) {
+async function seedNight(request, overrides = {}) {
   const { user } = await (await request.get('/api/me')).json();
   const headers = { 'X-Scorecard-User': user.id };
   const current = await (await request.get('/api/state', { headers })).json();
-  await request.put('/api/state', { headers: { ...headers, Origin: 'http://localhost:8788' }, data: { revision: current.revision, state: { ...freshState(), active: nightCard() } } });
+  await request.put('/api/state', { headers: { ...headers, Origin: 'http://localhost:8788' }, data: { revision: current.revision, state: { ...freshState(), active: { ...nightCard(), ...overrides } } } });
   return headers;
 }
 test('fight night requires a saved round, reveals the owner card, and keeps the next draft private', async ({page, request}) => {
@@ -279,4 +279,36 @@ test('fight night renders friends, highlights a split round and never advances t
   await page.getByRole('button',{name:'Reveal round 2',exact:true}).click();
   await expect(page.locator('.night-table thead')).toContainText('R2');
   expect(requested).toEqual([1,1,2]);
+});
+
+test('lobby joins a friend’s setup with a fresh private scorecard and saved source', async ({page,context}) => {
+  const fight={id:'lobby-fight',eventId:'lobby-event',eventTitle:'Friends’ card',day:'2026-10-02',eventDay:'2026-10-02',red:{name:'Lobby Red',fighterId:'lobby-red'},blue:{name:'Lobby Blue',fighterId:'lobby-blue'},weightClass:'Heavyweight',roundsTotal:6,roundLen:120,cornersConfirmed:false,venue:'Test arena',location:'Test city'};
+  await context.route('**/api/lobby',route=>route.fulfill({json:{rooms:[{fight,people:[{name:'friend',you:false}]}]}}));
+  await page.goto('/'); await expect(page.locator('#sync-status')).toHaveText('Saved to cloud');
+  await expect(page.locator('#lobby-rooms')).toContainText('friend');
+  await page.getByRole('button',{name:'Join bout',exact:true}).click();
+  await expect(page.locator('[data-model="redName"]')).toHaveValue('Lobby Red');await expect(page.locator('[data-model="blueName"]')).toHaveValue('Lobby Blue');
+  await expect(page.locator('[data-model="rounds"]')).toHaveValue('6');await expect(page.locator('[data-model="roundLen"]')).toHaveValue('120');
+  await page.getByRole('button',{name:'Start the bout'}).click();await expect(page.locator('#sync-status')).toHaveText('Saved to cloud');
+  const active=await page.evaluate(()=>window.__scorecard.state.active);expect(active.rounds).toEqual([]);expect(active.sourceFight.id).toBe('lobby-fight');expect(active.sourceFight.redFighterId).toBe('lobby-red');
+});
+test('personal stats show saved cards and distinguish full close decisions from incomplete cards',async({page})=>{
+  page.on('dialog',dialog=>dialog.accept());await page.goto('/');await expect(page.locator('#sync-status')).toHaveText('Saved to cloud');
+  const full={...exportBout,id:'stats-full',roundsTotal:3,rounds:[exportBout.rounds[0],exportBout.rounds[0],{winner:'even',kd:{red:0,blue:0},ded:{red:0,blue:0}}]};
+  await page.locator('#history-file').setInputFiles({name:'stats.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify({bouts:[full,exportBout]}))});
+  await expect(page.locator('#sync-status')).toHaveText('Saved to cloud');await page.getByRole('button',{name:'My stats',exact:true}).click();
+  await expect(page.locator('.stats-metrics > div').filter({hasText:'Fights saved'})).toContainText('2');
+  await expect(page.locator('.stats-metrics > div').filter({hasText:'Close decision cards'})).toContainText('1');
+  await expect(page.getByText('No judges’ comparisons yet.',{exact:false})).toBeVisible();
+  await page.getByRole('button',{name:'Close personal stats'}).click();await expect(page.locator('.stats-metrics')).toHaveCount(0);
+});
+test('fighter profile is on-demand, uses the swapped fighter ID, omits missing age and keeps keyboard scoring behind the modal inactive',async({page,request,context})=>{
+  await seedNight(request,{red:{name:'Blue Boxer'},blue:{name:'Red Boxer'},sourceFight:{...nightCard().sourceFight,redFighterId:'blue',blueFighterId:'red'}});const seen=[];
+  await context.route('**/api/fighter?*',route=>{seen.push(new URL(route.request().url()).searchParams.get('id'));return route.fulfill({json:{available:true,fetchedAt:'2026-10-02T12:00:00Z',fighter:{id:'blue',name:'Blue Boxer',nickname:'The Blue',nationality:'Test country',stance:'southpaw',height:'180 cm',reach:'190 cm',age:null,birthYear:1990,division:'Welterweight',debut:'2010',record:{wins:20,losses:1,draws:0},knockouts:null,careerRounds:150}}});});
+  await page.goto('/');await expect(page.locator('#sync-status')).toHaveText('Saved to cloud');expect(seen).toEqual([]);
+  await page.locator('.corner.red [data-action="fighter-open"]').click();
+  await expect(page.locator('.fighter-record')).toContainText('20–1–0');await expect(page.getByText('1990',{exact:true})).toBeVisible();
+  await expect(page.locator('#overlays .detail-line').filter({hasText:'Age'})).toHaveCount(0);await expect(page.locator('#overlays .detail-line').filter({hasText:'KO wins'})).toHaveCount(0);
+  await page.keyboard.press('r');expect(await page.evaluate(()=>window.__scorecard.draft().winner)).toBe('');
+  await page.getByRole('button',{name:'Close fighter profile'}).click();expect(seen).toEqual(['blue']);
 });

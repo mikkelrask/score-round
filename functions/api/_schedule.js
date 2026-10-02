@@ -9,17 +9,18 @@ class ScheduleError extends Error {
   constructor(message, delay = 900) { super(message); this.delay = delay; }
 }
 
-export async function reserveRequest(DB, now) {
+export async function reserveRequest(DB, now, minimumRemaining = 0) {
   const cache = await DB.prepare('SELECT requests_remaining, quota_reset_at FROM fight_schedule_cache WHERE id = ?').bind(CACHE_ID).first();
-  if (cache.requests_remaining != null && cache.requests_remaining <= 0 && cache.quota_reset_at > now) {
-    throw new ScheduleError('The schedule request allowance has been used. You can still enter a fight manually.', cache.quota_reset_at - now);
+  if (cache.requests_remaining != null && cache.requests_remaining <= minimumRemaining && cache.quota_reset_at > now) {
+    throw new ScheduleError(minimumRemaining ? 'Keeping the remaining API allowance for schedules and official scores.' : 'The schedule request allowance has been used. You can still enter a fight manually.', cache.quota_reset_at - now);
   }
   const month = new Date(now * 1000).toISOString().slice(0, 7);
   const result = await DB.prepare(`INSERT INTO fight_schedule_usage (month, requests) VALUES (?, 1)
     ON CONFLICT(month) DO UPDATE SET requests = requests + 1 WHERE requests < 80`).bind(month).run();
   if (!result.meta.changes) throw new ScheduleError('The schedule request allowance has been used. You can still enter a fight manually.', TTL);
-  await DB.prepare(`UPDATE fight_schedule_cache SET requests_remaining = CASE
-    WHEN quota_reset_at <= ? THEN NULL ELSE MAX(0, requests_remaining - 1) END WHERE id = ?`).bind(now, CACHE_ID).run();
+  const reserved = await DB.prepare(`UPDATE fight_schedule_cache SET requests_remaining = CASE
+    WHEN quota_reset_at <= ? THEN NULL ELSE MAX(0, requests_remaining - 1) END WHERE id = ? AND (requests_remaining IS NULL OR quota_reset_at <= ? OR requests_remaining > ?)`).bind(now, CACHE_ID, now, minimumRemaining).run();
+  if (!reserved.meta.changes) throw new ScheduleError('The API request allowance is reserved or exhausted. Try again after it resets.', TTL);
 }
 
 async function fetchPage(env, page, now, fetcher) {

@@ -5,6 +5,7 @@
 import { initials, portraitNameKey } from './portrait-data.js';
 import { CloudSync } from './sync.js';
 import { freshState, validateState, importBouts, MAX_STATE_BYTES } from './data.js';
+import { personalStats } from './personal-stats.js';
 import { sharedFight } from './fight-night.js';
 import { eligibleCard } from './judging.js';
 import { filterSchedule, groupSchedule } from './schedule-data.js';
@@ -55,6 +56,13 @@ import { filterSchedule, groupSchedule } from './schedule-data.js';
   function persist() {
     if (state.active) { state.active.draft = draft; state.active.editingIdx = editingIdx; }
     cloud.save(state);
+  }
+
+  async function flushForRead(message) {
+    const deadline = Date.now() + 12000;
+    while (cloud.busy && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 100));
+    await cloud.flush();
+    if (cloud.record?.pending || cloud.conflict || cloud.authRequired) throw new Error(message);
   }
 
   function applyState(next) {
@@ -256,6 +264,14 @@ import { filterSchedule, groupSchedule } from './schedule-data.js';
   /* ---------------- actions ---------------- */
 
   const ACTIONS = {
+    'lobby-refresh': () => loadLobby(),
+    'lobby-join': el => joinLobby(+el.dataset.room),
+    'stats-open': () => { ui.statsOpen = true; loadStats(); },
+    'stats-close': () => { ui.statsOpen = false; renderOverlays(); },
+    'stats-refresh': () => loadStats(),
+    'fighter-open': el => openFighter(el),
+    'fighter-close': () => { ui.profileOpen = false; renderOverlays(); },
+    'fighter-retry': () => loadFighter(),
     'night-reveal': () => loadFightNight(true),
     'night-refresh': () => loadFightNight(false),
     'night-hide': () => { const b = nightBout(); if (b) nightViews.delete(b.id); renderFightNight(); },
@@ -474,7 +490,7 @@ import { filterSchedule, groupSchedule } from './schedule-data.js';
 
   /* ---------------- ui state ---------------- */
 
-  const ui = { leaderboardOpen: false, historyOpen: false, historyPage: 0, viewBout: null, endOpen: false, kd: null };
+  const ui = { statsOpen: false, profileOpen: false, leaderboardOpen: false, historyOpen: false, historyPage: 0, viewBout: null, endOpen: false, kd: null };
 
   /* ---------------- rendering ---------------- */
 
@@ -490,6 +506,7 @@ import { filterSchedule, groupSchedule } from './schedule-data.js';
     }
     bindSetup();
     renderSchedulePicker();
+    renderLobby();
     renderPortraits();
     updatePrintout();
     renderOverlays(); // keep modals/overlays in sync with state changes
@@ -564,8 +581,31 @@ import { filterSchedule, groupSchedule } from './schedule-data.js';
       : `<p class="schedule-message">${schedule.query ? 'No matching fights in this date range. Try another name or Next 7 days.' : schedule.period === 'today' ? 'No fights listed for today. Check This weekend or Next 7 days, or enter a bout below.' : 'No fights listed for this date range. Check Next 7 days or enter a bout below.'}</p>`;
   }
 
+  const lobby = { rooms: [], loading: false, loaded: false, error: '' };
+  async function loadLobby() {
+    if (lobby.loading || !cloud.user) return;
+    lobby.loading = true; lobby.error = ''; renderLobby();
+    try { const result = await cloud.api('lobby'); lobby.rooms = result.rooms; lobby.loaded = true; }
+    catch (error) { lobby.error = error.message; lobby.rooms = []; }
+    finally { lobby.loading = false; renderLobby(); }
+  }
+  function renderLobby() {
+    const target = $('#lobby-rooms'); if (!target) return;
+    target.innerHTML = lobby.loading ? '<p class="lobby-note" role="status">Checking friends’ bouts…</p>' : lobby.error ? `<p class="lobby-note" role="status">${esc(lobby.error)}. You can still start your own bout below.</p>` : lobby.rooms.length ? lobby.rooms.map((room, index) => `<div class="lobby-room"><div><strong>${esc(room.fight.red.name)} <span>vs</span> ${esc(room.fight.blue.name)}</strong><p>${esc(room.fight.eventTitle)} · ${room.fight.roundsTotal} rounds · ${fmtClock(room.fight.roundLen)}</p><p>${room.people.map(person => esc(person.name) + (person.you ? ' (you)' : '')).join(', ')}</p></div><button class="btn btn-gold btn-sm" data-action="lobby-join" data-room="${index}">Join bout</button></div>`).join('') + '<p class="lobby-note">Saved bouts started in the last 24 hours. Scores and round progress stay hidden here.</p>' : '<p class="lobby-note">No shared bouts in progress. Start a scheduled fight below and friends can join it here.</p>';
+  }
+  function joinLobby(index) {
+    const room = lobby.rooms[index]; if (!room || state.active) return;
+    const prior = state.history.find(card => card.sourceFight?.id === room.fight.id);
+    if (prior && !confirm('You already have a saved card for this fight. Start another scorecard?')) return;
+    prefillFight({ ...room.fight, fromLobby: true });
+  }
+
   function selectScheduledFight(id) {
     const fight = schedule.result?.fights.find((f) => f.id === id); if (!fight || state.active) return;
+    prefillFight(fight);
+  }
+
+  function prefillFight(fight) {
     setup.selectedFight = fight; setup.cornersSwapped = false;
     setup.redName = fight.red.name; setup.blueName = fight.blue.name;
     setup.weight = fight.weightClass; setup.venue = fight.venue;
@@ -629,16 +669,17 @@ import { filterSchedule, groupSchedule } from './schedule-data.js';
         </div>
       </div>
       ${bannerHTML}
+      <section class="lobby-panel" aria-label="Friends’ fight nights"><div class="schedule-heading"><div><h2>At ringside together</h2><p>Join a friend’s scheduled bout with the same setup.</p></div><button class="btn btn-sm btn-ghost" data-action="lobby-refresh">Refresh</button></div><div id="lobby-rooms"></div></section>
       <section class="schedule-picker" aria-label="Scheduled fights">
         <div class="schedule-heading"><div><h2>From the fight card</h2><p>Select a scheduled bout to fill in the details.</p></div><button class="btn" data-action="schedule-toggle" aria-expanded="${schedule.open}" aria-controls="schedule-content">${schedule.open ? 'Hide schedule' : 'Browse fights'}</button></div>
         <div id="schedule-content" ${schedule.open ? '' : 'hidden'}></div>
       </section>
 
-      ${setup.selectedFight ? `<div class="selected-fight"><div><strong>${esc(setup.selectedFight.eventTitle)}</strong><span>${scheduleDate(setup.selectedFight.eventDay)}${setup.venue ? ' · ' + esc(setup.venue) : ''}</span></div><button class="btn btn-sm btn-ghost" data-action="schedule-clear">Clear selection</button><p>${setup.cornersSwapped ? 'Corners swapped. Check the broadcast before scoring.' : setup.selectedFight.cornersConfirmed ? 'Corner assignments supplied by the schedule.' : 'Corner assignments are not supplied. Swap corners to match the broadcast.'}${!setup.selectedFight.roundsTotal ? ' Choose the scheduled number of rounds.' : ''}${!setup.selectedFight.weightClass ? ' Weight class is not supplied; enter it below if known.' : ''}${!setup.selectedFight.roundLen ? ' Choose the round length before starting.' : ''}</p></div>` : ''}
+      ${setup.selectedFight ? `<div class="selected-fight"><div><strong>${esc(setup.selectedFight.eventTitle)}</strong><span>${scheduleDate(setup.selectedFight.eventDay)}${setup.venue ? ' · ' + esc(setup.venue) : ''}</span></div><button class="btn btn-sm btn-ghost" data-action="schedule-clear">Clear selection</button><p>${setup.selectedFight.fromLobby ? 'Using your friend’s setup. Check the corners and settings against the broadcast. ' : ''}${setup.cornersSwapped ? 'Corners swapped. Check the broadcast before scoring.' : setup.selectedFight.cornersConfirmed ? 'Corner assignments supplied by the schedule.' : 'Corner assignments are not supplied. Swap corners to match the broadcast.'}${!setup.selectedFight.roundsTotal ? ' Choose the scheduled number of rounds.' : ''}${!setup.selectedFight.weightClass ? ' Weight class is not supplied; enter it below if known.' : ''}${!setup.selectedFight.roundLen ? ' Choose the round length before starting.' : ''}</p></div>` : ''}
       <div class="setup-grid">
         <div class="corner-card red">
           ${portraitHTML(setup.redName)}
-          <label>Red corner</label>
+          <label>Red corner</label><button class="fighter-link" data-action="fighter-open" data-side="red">Profile</button>
           <input class="field" data-model="redName" placeholder="Fighter name" value="${esc(setup.redName)}" autocomplete="off">
         </div>
         <div class="setup-mid">
@@ -648,7 +689,7 @@ import { filterSchedule, groupSchedule } from './schedule-data.js';
         </div>
         <div class="corner-card blue">
           ${portraitHTML(setup.blueName)}
-          <label>Blue corner</label>
+          <label>Blue corner</label><button class="fighter-link" data-action="fighter-open" data-side="blue">Profile</button>
           <input class="field" data-model="blueName" placeholder="Fighter name" value="${esc(setup.blueName)}" autocomplete="off">
         </div>
       </div>
@@ -852,7 +893,7 @@ import { filterSchedule, groupSchedule } from './schedule-data.js';
       <div class="scoreboard">
         <div class="corner red">
           ${portraitHTML(b.red.name)}<div class="corner-info">
-          <div class="corner-tag">Red corner</div>
+          <div class="corner-tag">Red corner <button class="fighter-link" data-action="fighter-open" data-side="red">Profile</button></div>
           <div class="corner-name">${esc(b.red.name)}</div>
           <div class="corner-stats">
             <span class="stat-chip ${kdTotal("red") ? "down" : ""}">DOWN ×${kdTotal("red")}</span>
@@ -865,7 +906,7 @@ import { filterSchedule, groupSchedule } from './schedule-data.js';
         </div>
         <div class="corner blue">
           ${portraitHTML(b.blue.name)}<div class="corner-info">
-          <div class="corner-tag">Blue corner</div>
+          <div class="corner-tag">Blue corner <button class="fighter-link" data-action="fighter-open" data-side="blue">Profile</button></div>
           <div class="corner-name">${esc(b.blue.name)}</div>
           <div class="corner-stats">
             <span class="stat-chip ${kdTotal("blue") ? "blue-down" : ""}">DOWN ×${kdTotal("blue")}</span>
@@ -928,6 +969,57 @@ import { filterSchedule, groupSchedule } from './schedule-data.js';
     }
   }
 
+  const stats = { result: null, loading: false, error: '' };
+  async function loadStats() {
+    if (stats.loading) return;
+    stats.loading = true; stats.error = ''; renderOverlays();
+    try {
+      await flushForRead('Showing device history. Sync to include cached judges’ comparisons.');
+      stats.result = await cloud.api('stats');
+    } catch (error) { stats.result = personalStats(state.history); stats.error = error.message; }
+    finally { stats.loading = false; renderOverlays(); }
+  }
+  function statsHTML() {
+    const data = stats.result || personalStats(state.history);
+    const metrics = [['Fights saved', data.fights], ['Rounds scored', data.rounds], ['Close decision cards', data.closeCards], ['Level decision cards', data.levelCards], ['Recorded draws', data.recordedDraws], ['Judges’ agreement', data.agreement === null ? '—' : data.agreement.toFixed(1) + '%']];
+    return `<div class="overlay"><div class="overlay-panel" style="width:min(760px,100%)"><div class="overlay-head"><h2>Your scorekeeping</h2><button class="icon-btn" data-action="stats-close" aria-label="Close personal stats">×</button></div>
+      ${stats.loading ? '<p role="status">Opening your stats…</p>' : ''}${stats.error ? `<p class="judging-note" role="status">${esc(stats.error)}</p>` : ''}
+      <div class="stats-metrics">${metrics.map(([label,value]) => `<div><strong>${value}</strong><span>${label}</span></div>`).join('')}</div>
+      <p class="judging-note">Close means a final margin of two points or less, on a full decision card. Level cards are your tied totals; recorded draws are the results you entered.</p>
+      <div class="detail-line"><span>Full decision cards</span><b>${data.decisions}</b></div><div class="detail-line"><span>Average decision margin</span><b>${data.averageMargin === null ? '—' : data.averageMargin.toFixed(1) + ' points'}</b></div><div class="detail-line"><span>Even rounds</span><b>${data.evenRounds}</b></div><div class="detail-line"><span>Knockdowns recorded</span><b>${data.knockdowns}</b></div><div class="detail-line"><span>Deductions recorded</span><b>${data.deductions}</b></div><div class="detail-line"><span>Stoppages / disqualifications</span><b>${data.stoppages}</b></div>
+      <h3 class="stats-title">Your agreement over time</h3><p class="judging-note">${data.rankedFights} ranked fight${data.rankedFights === 1 ? '' : 's'}. Monthly averages from cached official final totals; each fight counts once.</p>
+      ${data.trend.length ? `<div class="stats-trend-scroll"><div class="stats-trend">${data.trend.map(point => `<div class="stats-month"><strong>${point.agreement.toFixed(1)}%</strong><div class="stats-bar-track"><div style="height:${point.agreement}%"></div></div><span>${esc(point.month)}</span><small>${point.fights} fight${point.fights === 1 ? '' : 's'}</small></div>`).join('')}</div></div>` : '<p class="empty-card">No judges’ comparisons yet. Finish a scheduled decision bout and check its official scores to start your trend.</p>'}
+      ${data.comparisons.length ? `<h3 class="stats-title">Recent ranked cards</h3>${data.comparisons.map(point => `<div class="stats-comparison"><span>${esc(point.fight)}<small>${fmtDate(point.date)}</small></span><strong>${point.agreement.toFixed(1)}%</strong></div>`).join('')}` : ''}
+      <p class="judging-note">Agreement measures similarity to judges’ final totals, not judging correctness. History imports count; deleting a card updates these stats.</p><button class="btn" data-action="stats-refresh" ${stats.loading ? 'disabled' : ''}>Refresh stats</button></div></div>`;
+  }
+  const profile = { query: null, result: null, loading: false, sequence: 0 };
+  function openFighter(el) {
+    const side = el.dataset.side; if (!['red', 'blue'].includes(side)) return;
+    const bout = el.dataset.card ? state.history.find(card => card.id === el.dataset.card) : state.active;
+    const name = bout ? bout[side].name : setup[`${side}Name`].trim();
+    if (!name) return;
+    const setupSide = setup.cornersSwapped ? side === 'red' ? 'blue' : 'red' : side;
+    const id = bout ? bout.sourceFight?.[`${side}FighterId`] : setup.selectedFight?.[setupSide]?.fighterId;
+    profile.query = {name, id}; ui.profileOpen = true; loadFighter();
+  }
+  async function loadFighter() {
+    if (!profile.query) return;
+    const sequence = ++profile.sequence, query = { ...profile.query };
+    profile.result = null; profile.loading = true; renderOverlays();
+    try { const result = await cloud.api(`fighter?${new URLSearchParams(query.id ? {id:query.id} : {name:query.name})}`, {signal:AbortSignal.timeout(15000)}); if (sequence === profile.sequence) profile.result = result; }
+    catch (error) { if (sequence === profile.sequence) profile.result = {available:false,reason:error.message}; }
+    finally { if (sequence === profile.sequence) { profile.loading = false; renderOverlays(); } }
+  }
+  function profileHTML() {
+    const result = profile.result, fighter = result?.fighter;
+    const name = fighter?.name || profile.query?.name || 'Fighter';
+    const fields = fighter ? [['Nationality',fighter.nationality],['Stance',fighter.stance],['Height',fighter.height],['Reach',fighter.reach],['Age',fighter.age === null ? null : fighter.age],['Born',fighter.birthYear],['Division',fighter.division],['Pro debut',fighter.debut],['KO wins',fighter.knockouts],['Career rounds',fighter.careerRounds]].filter(([,value]) => value !== null && value !== '') : [];
+    return `<div class="overlay"><div class="overlay-panel" style="width:min(600px,100%)"><div class="overlay-head"><h2>Fighter profile</h2><button class="icon-btn" data-action="fighter-close" aria-label="Close fighter profile">×</button></div>
+      <div class="fighter-profile-banner">${portraitHTML(name)}<h3>${esc(name)}</h3>${fighter?.nickname ? `<p>${esc(fighter.nickname)}</p>` : ''}</div><footer class="photo-sources no-print" hidden></footer>
+      ${profile.loading ? '<p role="status">Looking up the fighter…</p>' : result?.available ? `<div class="fighter-record">${fighter.record ? `${fighter.record.wins}–${fighter.record.losses}–${fighter.record.draws}<span>Wins · losses · draws</span>` : '<span>Record not supplied</span>'}</div>${fields.map(([label,value]) => `<div class="detail-line"><span>${label}</span><b>${esc(value)}</b></div>`).join('')}<p class="judging-note">Current Boxing Data profile, not the fighter’s record on fight day. ${result.fetchedAt ? `Checked ${fmtDate(result.fetchedAt)}.` : ''}${result.stale ? ' Showing a saved profile.' : ''}</p>${result.notice ? `<p class="judging-note">${esc(result.notice)}</p>` : ''}` : `<p class="judging-note">${esc(result?.reason || 'Profile unavailable.')}</p><button class="btn btn-sm" data-action="fighter-retry">Try again</button>`}
+      <p class="judging-note">Missing fields are omitted. Profiles are shared and cached for seven days.</p></div></div>`;
+  }
+
   const nightViews = new Map();
   function nightBout() { return ui.historyOpen && ui.viewBout ? ui.viewBout : state.active; }
   function nightView(bout) {
@@ -943,8 +1035,7 @@ import { filterSchedule, groupSchedule } from './schedule-data.js';
     if (!requested) return;
     view.loading = true; view.error = ''; renderFightNight();
     try {
-      await cloud.flush();
-      if (cloud.record.pending || cloud.conflict || cloud.authRequired) throw new Error('Save your round to the cloud before revealing the room.');
+      await flushForRead('Save your round to the cloud before revealing the room.');
       const result = await cloud.api(`fight-night?card=${encodeURIComponent(bout.id)}&round=${requested}`);
       // Hiding while a request is in flight must not reopen the comparison.
       if (nightViews.get(bout.id) !== view) return;
@@ -1025,7 +1116,9 @@ import { filterSchedule, groupSchedule } from './schedule-data.js';
     const wrap = $("#overlays");
     let html = "";
 
-    if (ui.leaderboardOpen) {
+    if (ui.profileOpen) { html += profileHTML(); }
+    else if (ui.statsOpen) { html += statsHTML(); }
+    else if (ui.leaderboardOpen) {
       html += `<div class="overlay"><div class="overlay-panel" style="width:min(680px,100%)">
         <div class="overlay-head"><h2>Judges’ agreement</h2><button class="icon-btn" data-action="leaderboard-close" aria-label="Close leaderboard">×</button></div>
         <p class="judging-note">Average agreement with official final scorecards. Each fight counts once per person; everyone here participates.</p>
@@ -1107,6 +1200,7 @@ import { filterSchedule, groupSchedule } from './schedule-data.js';
           ${b.weightClass ? `<div class="detail-line"><span>Weight class</span><b>${esc(b.weightClass)}</b></div>` : ""}
           <div class="detail-line"><span>Scheduled</span><b>${b.roundsTotal} rounds</b></div>
           <div class="detail-line"><span>Rounds scored</span><b>${b.rounds.length}</b></div>
+          <div class="card-profile-links"><button class="btn btn-sm btn-ghost" data-action="fighter-open" data-side="red" data-card="${esc(b.id)}">${esc(b.red.name)} · Profile</button><button class="btn btn-sm btn-ghost" data-action="fighter-open" data-side="blue" data-card="${esc(b.id)}">${esc(b.blue.name)} · Profile</button></div>
           ${resHTML}
           <footer class="photo-sources no-print" hidden></footer>
           ${judgesHTML(b)}
@@ -1221,7 +1315,7 @@ import { filterSchedule, groupSchedule } from './schedule-data.js';
 
   document.addEventListener("keydown", (e) => {
     if (e.target.matches("input, select, textarea")) return;
-    if (ui.kd || ui.endOpen || ui.historyOpen) return;
+    if (ui.kd || ui.endOpen || ui.historyOpen || ui.profileOpen || ui.statsOpen || ui.leaderboardOpen) return;
     if (!state.active) return;
     if (e.code === "Space") { e.preventDefault(); toggleClock(); }
     else if (e.key === "r" || e.key === "R") setWinner("red");
@@ -1255,6 +1349,7 @@ import { filterSchedule, groupSchedule } from './schedule-data.js';
   });
   $('#app').innerHTML = '<div class="screen"><h1>Opening your scorecards…</h1><p>Checking your account and cloud history.</p></div>';
   cloud.start().then((ready) => {
+    if (ready) loadLobby();
     if (ready) (async () => { for (const bout of state.history.filter(eligibleCard).slice(0, 3)) await checkJudges(bout); })();
     if (!ready) $('#app').innerHTML = '<div class="screen"><h1>Unable to open your account</h1><p>Reconnect and retry to load your personal history.</p><button class="btn" data-action="sync-retry">Retry / sign in</button></div>';
   });
