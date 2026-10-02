@@ -965,9 +965,10 @@ select.field { appearance: none; background-image: linear-gradient(45deg, transp
 .corner-card, .corner { position: relative; isolation: isolate; overflow: hidden; }
 .portrait-wrap { position: absolute; inset: 0; z-index: -1; pointer-events: none; }
 .portrait-frame { position: absolute; inset: 0; }
-.portrait-frame::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg,rgba(119,28,48,.38),rgba(68,18,38,.65) 55%,rgba(37,16,30,.95)); }
-.blue .portrait-frame::after { background: linear-gradient(180deg,rgba(20,83,146,.38),rgba(15,54,105,.65) 55%,rgba(12,29,56,.95)); }
-.portrait-image { width: 100%; height: 100%; object-fit: cover; object-position: center 25%; opacity: 0; }
+.portrait-frame::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg,transparent 15%,rgba(14,19,32,.18) 45%,rgba(14,19,32,.9)); }
+.red .portrait-image { filter: url(#portrait-red); }
+.blue .portrait-image { filter: url(#portrait-blue); }
+.portrait-image { width: 100%; height: 100%; object-fit: cover; object-position: center 25%; opacity: 0; filter: url(#portrait-gold); }
 .photo-ready .portrait-image { opacity: 1; }
 .portrait-initials { position: absolute; top: 14px; right: 18px; font: 800 72px/1 "Barlow Condensed",sans-serif; color: rgba(255,255,255,.12); }
 .photo-ready .portrait-initials { visibility: hidden; }
@@ -1029,7 +1030,7 @@ select.field { appearance: none; background-image: linear-gradient(45deg, transp
 /* Saved winners reuse the same photo beneath the result's gold wash. */
 .detail-result { position: relative; isolation: isolate; overflow: hidden; }
 .detail-result.has-winner { min-height: 180px; display: flex; flex-direction: column; justify-content: flex-end; padding: 24px 16px; }
-.detail-result .portrait-frame::after { background: linear-gradient(180deg,rgba(239,206,135,.25),rgba(66,48,24,.55) 45%,rgba(17,25,39,.96)); }
+.detail-result .portrait-frame::after { background: linear-gradient(180deg,transparent 10%,rgba(17,25,39,.35) 45%,rgba(17,25,39,.96)); }
 .detail-result .portrait-image { object-position: center 30%; }
 .detail-result .who { color: var(--gold); text-shadow: 0 1px 5px #101c30; }
 .detail-result .how { color: var(--ink); text-shadow: 0 1px 5px #101c30; overflow-wrap: anywhere; }
@@ -1052,7 +1053,7 @@ select.field { appearance: none; background-image: linear-gradient(45deg, transp
 .card-profile-links { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .card-profile-links .btn { white-space: normal; text-align: left; }
 .fighter-profile-banner { position: relative; isolation: isolate; overflow: hidden; min-height: 220px; display: flex; flex-direction: column; justify-content: end; padding: 24px; background: var(--bg); border-radius: var(--radius); }
-.fighter-profile-banner .portrait-frame::after { background: linear-gradient(180deg,rgba(16,28,48,.12),rgba(16,28,48,.6) 55%,rgba(16,28,48,.98)); }
+.fighter-profile-banner .portrait-frame::after { background: linear-gradient(180deg,transparent 15%,rgba(16,28,48,.35) 55%,rgba(16,28,48,.98)); }
 .fighter-profile-banner h3 { margin: 0; font: 700 36px/1.1 "Barlow Condensed",sans-serif; }
 .fighter-profile-banner p { margin: 8px 0 0; color: var(--gold); font-size: 13px; }
 .fighter-record { font: 700 42px/1.2 "Barlow Condensed",sans-serif; margin: 22px 0; color: var(--gold); }
