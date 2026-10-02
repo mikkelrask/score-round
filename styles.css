@@ -960,3 +960,68 @@ select.field { appearance: none; background-image: linear-gradient(45deg, transp
 }
 .center-totals > span:first-child { color: #ae3044; }
 .center-totals > span:last-child { color: #245a95; }
+
+/* Full-bleed fighter photos sit underneath their corner tint and readable text. */
+.corner-card, .corner { position: relative; isolation: isolate; overflow: hidden; }
+.portrait-wrap { position: absolute; inset: 0; z-index: -1; pointer-events: none; }
+.portrait-frame { position: absolute; inset: 0; }
+.portrait-frame::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg,rgba(119,28,48,.38),rgba(68,18,38,.65) 55%,rgba(37,16,30,.95)); }
+.blue .portrait-frame::after { background: linear-gradient(180deg,rgba(20,83,146,.38),rgba(15,54,105,.65) 55%,rgba(12,29,56,.95)); }
+.portrait-image { width: 100%; height: 100%; object-fit: cover; object-position: center 25%; opacity: 0; }
+.photo-ready .portrait-image { opacity: 1; }
+.portrait-initials { position: absolute; top: 14px; right: 18px; font: 800 72px/1 "Barlow Condensed",sans-serif; color: rgba(255,255,255,.12); }
+.photo-ready .portrait-initials { visibility: hidden; }
+.corner-card { justify-content: flex-end; min-height: 230px; }
+.corner-card > label { position: absolute; top: 22px; left: 22px; text-shadow: 0 1px 5px #101c30; }
+.corner-card .field { position: relative; text-shadow: 0 1px 5px #101c30; }
+.corner { display: flex; flex-direction: column; justify-content: flex-end; min-height: 240px; text-align: left; }
+.corner .corner-info { min-width: 0; width: 100%; padding-top: 100px; text-shadow: 0 1px 5px #101c30; }
+.corner-stats { justify-content: flex-start; }
+.corner-tag { color: #f7f5ed; }
+.photo-sources { max-width: 1080px; margin: 24px auto; padding: 0 16px; font-size: 11px; color: var(--muted); }
+.photo-sources summary { cursor: pointer; width: fit-content; }
+.photo-source-list { max-width: 700px; line-height: 1.6; overflow-wrap: anywhere; }
+.photo-source-list a { color: var(--ink); text-underline-offset: 2px; }
+@media (max-width: 760px) {
+  .corner-card { min-height: 208px; }
+  .corner-card > label { top: 18px; left: 16px; }
+  .corner { min-height: 220px; }
+  .corner .corner-name { font-size: 26px; }
+  .corner .corner-info { padding-top: 90px; }
+}
+@media (max-width: 480px) {
+  .corner-card > label { left: 14px; }
+  .corner .corner-name { font-size: 24px; }
+}
+
+/* The room's cards stay secondary to making your own call. */
+.fight-night-panel { margin: 20px 0; padding: 22px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
+.night-heading { display: flex; align-items: start; justify-content: space-between; gap: 12px; }
+.night-heading h3 { margin: 0; font: 700 30px/1.1 "Barlow Condensed",sans-serif; }
+.night-heading p, .night-note, .night-manual { color: var(--muted); font-size: 12px; line-height: 1.6; }
+.night-heading p { margin: 8px 0 14px; }
+.night-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.night-table-scroll { overflow-x: auto; margin-top: 20px; }
+.night-table { width: 100%; border-collapse: collapse; font-size: 13px; text-align: left; }
+.night-table caption { text-align: left; color: var(--muted); font-size: 11px; margin-bottom: 10px; }
+.night-table th, .night-table td { padding: 10px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.night-table th { font-weight: 600; }
+.night-table th span { color: var(--gold); font-size: 11px; }
+.night-table .night-total { font: 600 18px/1.4 "JetBrains Mono",monospace; }
+.night-total small { display: block; color: var(--muted); font: 10px/1.5 "Manrope",sans-serif; }
+.night-you { background: rgba(239,206,135,.07); }
+.night-score { font-family: "JetBrains Mono",monospace; }
+.night-score.red, .red-vote { color: #ffadb2; }
+.night-score.blue, .blue-vote { color: #a5d1ff; }
+.night-waiting { color: var(--dim); font-size: 11px; }
+.night-rounds { display: grid; grid-template-columns: repeat(auto-fit,minmax(180px,1fr)); gap: 10px; margin-top: 16px; }
+.night-round { display: flex; flex-direction: column; gap: 6px; padding: 12px; border-left: 3px solid var(--line); background: var(--bg); font-size: 12px; }
+.night-round.split { border-color: var(--gold); }
+.night-round small { color: var(--muted); }
+.night-official { border-top: 1px solid var(--line); margin-top: 18px; padding-top: 16px; }
+.night-official h4 { margin: 0 0 12px; }
+.night-official p { font-size: 13px; }
+.night-error { color: #ffafb4; font-size: 12px; }
+@media (max-width: 480px) { .fight-night-panel { padding: 16px 12px; } .night-heading { flex-wrap: wrap; } .night-rounds { grid-template-columns: minmax(0,1fr); } }
+.night-scroll-hint { display: none; color: var(--dim); font-size: 10px; }
+@media (max-width: 760px) { .night-scroll-hint { display: block; } }
