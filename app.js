@@ -2,6 +2,7 @@
    SCORECARD — boxing round scoring (10-point must)
    Vanilla JS · local device saves + per-user cloud sync
    ============================================================ */
+import { initials, portraitNameKey } from './portrait-data.js';
 import { CloudSync } from './sync.js';
 import { freshState, validateState, importBouts, MAX_STATE_BYTES } from './data.js';
 import { eligibleCard } from './judging.js';
@@ -484,6 +485,7 @@ import { filterSchedule, groupSchedule } from './schedule-data.js';
     }
     bindSetup();
     renderSchedulePicker();
+    renderPortraits();
     updatePrintout();
     renderOverlays(); // keep modals/overlays in sync with state changes
   }
@@ -630,6 +632,7 @@ import { filterSchedule, groupSchedule } from './schedule-data.js';
       ${setup.selectedFight ? `<div class="selected-fight"><div><strong>${esc(setup.selectedFight.eventTitle)}</strong><span>${scheduleDate(setup.selectedFight.eventDay)}${setup.venue ? ' · ' + esc(setup.venue) : ''}</span></div><button class="btn btn-sm btn-ghost" data-action="schedule-clear">Clear selection</button><p>${setup.cornersSwapped ? 'Corners swapped. Check the broadcast before scoring.' : setup.selectedFight.cornersConfirmed ? 'Corner assignments supplied by the schedule.' : 'Corner assignments are not supplied. Swap corners to match the broadcast.'}${!setup.selectedFight.roundsTotal ? ' Choose the scheduled number of rounds.' : ''}${!setup.selectedFight.weightClass ? ' Weight class is not supplied; enter it below if known.' : ''}${!setup.selectedFight.roundLen ? ' Choose the round length before starting.' : ''}</p></div>` : ''}
       <div class="setup-grid">
         <div class="corner-card red">
+          ${portraitHTML(setup.redName)}
           <label>Red corner</label>
           <input class="field" data-model="redName" placeholder="Fighter name" value="${esc(setup.redName)}" autocomplete="off">
         </div>
@@ -639,6 +642,7 @@ import { filterSchedule, groupSchedule } from './schedule-data.js';
           <div class="select-row"><span>Weight class</span><input class="field" data-model="weight" placeholder="e.g. Welterweight" value="${esc(setup.weight)}" autocomplete="off"></div>
         </div>
         <div class="corner-card blue">
+          ${portraitHTML(setup.blueName)}
           <label>Blue corner</label>
           <input class="field" data-model="blueName" placeholder="Fighter name" value="${esc(setup.blueName)}" autocomplete="off">
         </div>
@@ -661,6 +665,10 @@ import { filterSchedule, groupSchedule } from './schedule-data.js';
     if (!state.active) {
       $("#app").querySelectorAll("[data-model]").forEach((el) => {
         const model = el.dataset.model;
+        if (model === 'redName' || model === 'blueName') el.addEventListener('blur', () => {
+          const frame = el.closest('.corner-card').querySelector('.portrait-wrap');
+          frame.outerHTML = portraitHTML(el.value.trim()); renderPortraits();
+        });
         el.addEventListener(el.tagName === "SELECT" ? "change" : "input", () => {
           if (model === "redName") setup.redName = el.value;
           else if (model === "blueName") setup.blueName = el.value;
@@ -838,24 +846,26 @@ import { filterSchedule, groupSchedule } from './schedule-data.js';
 
       <div class="scoreboard">
         <div class="corner red">
+          ${portraitHTML(b.red.name)}<div class="corner-info">
           <div class="corner-tag">Red corner</div>
           <div class="corner-name">${esc(b.red.name)}</div>
           <div class="corner-stats">
             <span class="stat-chip ${kdTotal("red") ? "down" : ""}">DOWN ×${kdTotal("red")}</span>
             <span class="stat-chip ${dedTotal("red") ? "ded" : ""}">DED ×${dedTotal("red")}</span>
-          </div>
+          </div></div>
         </div>
         <div class="center-panel">
           <div class="center-totals"><span class="${leadClass}">${t.red}</span><span class="tie"> – </span><span class="${leadClass}">${t.blue}</span></div>
           <div class="center-sub">${b.rounds.length} round${b.rounds.length === 1 ? "" : "s"} scored</div>
         </div>
         <div class="corner blue">
+          ${portraitHTML(b.blue.name)}<div class="corner-info">
           <div class="corner-tag">Blue corner</div>
           <div class="corner-name">${esc(b.blue.name)}</div>
           <div class="corner-stats">
             <span class="stat-chip ${kdTotal("blue") ? "blue-down" : ""}">DOWN ×${kdTotal("blue")}</span>
             <span class="stat-chip ${dedTotal("blue") ? "ded" : ""}">DED ×${dedTotal("blue")}</span>
-          </div>
+          </div></div>
         </div>
       </div>
 
@@ -867,6 +877,37 @@ import { filterSchedule, groupSchedule } from './schedule-data.js';
         ${cardFoot}
       </div>
     </div>`;
+  }
+
+  const portraits = { values: new Map(), pending: new Map(), failedImages: new Set() };
+  function portraitHTML(name) {
+    return `<div class="portrait-wrap" data-portrait-name="${esc(name)}"><div class="portrait-frame"><span class="portrait-initials" aria-hidden="true">${esc(initials(name))}</span></div><div class="portrait-credit"></div></div>`;
+  }
+  function paintPortrait(node, photo) {
+    if (!node.isConnected || !photo?.available || portraits.failedImages.has(photo.imageUrl) || node.querySelector('img')) return;
+    const frame = node.querySelector('.portrait-frame'), image = document.createElement('img');
+    image.className = 'portrait-image'; image.alt = `Portrait of ${node.dataset.portraitName}`;
+    image.decoding = 'async'; image.loading = 'lazy';
+    image.addEventListener('load', () => frame.classList.add('photo-ready'), { once: true });
+    image.addEventListener('error', () => { portraits.failedImages.add(photo.imageUrl); image.remove(); frame.classList.remove('photo-ready'); node.querySelector('.portrait-credit').innerHTML = ''; }, { once: true });
+    image.src = photo.imageUrl; frame.append(image);
+    node.querySelector('.portrait-credit').innerHTML = `<details><summary>Photo credit</summary><div><a href="${esc(photo.sourceUrl)}" target="_blank" rel="noopener noreferrer">${esc(photo.title)}</a><span>${esc(photo.author)}${photo.credit ? ' · ' + esc(photo.credit) : ''}</span><a href="${esc(photo.licenseUrl)}" target="_blank" rel="noopener noreferrer">${esc(photo.license)}</a><span>Cropped to fit.</span></div></details>`;
+    if (image.complete && image.naturalWidth) frame.classList.add('photo-ready');
+  }
+  function renderPortraits() {
+    for (const node of document.querySelectorAll('[data-portrait-name]')) {
+      const name = node.dataset.portraitName.trim(), key = portraitNameKey(name);
+      if (key.length < 2 || !cloud.user) continue;
+      if (portraits.values.has(key)) { paintPortrait(node, portraits.values.get(key)); continue; }
+      if (portraits.pending.has(key)) continue;
+      const promise = cloud.api(`portraits?name=${encodeURIComponent(name)}`, { signal: AbortSignal.timeout(22000) })
+        .then(photo => { if (!photo.retry) portraits.values.set(key, photo); })
+        .catch(() => { portraits.values.set(key, { available: false }); })
+        .finally(() => { portraits.pending.delete(key);
+          for (const current of document.querySelectorAll('[data-portrait-name]')) if (portraitNameKey(current.dataset.portraitName) === key) paintPortrait(current, portraits.values.get(key));
+        });
+      portraits.pending.set(key, promise);
+    }
   }
 
   const judging = { cards: new Map(), loading: new Set(), board: null, boardLoading: false, boardError: '' };
