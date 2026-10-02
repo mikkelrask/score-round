@@ -22,10 +22,17 @@ export async function onRequest(context) {
     data.user = await env.DB.prepare('SELECT id, email FROM users WHERE email = ? AND access_sub = ?')
       .bind(identity.email, identity.sub).first();
     if (!data.user) return json({ error: 'Unable to identify account.' }, 401);
-    if (new URL(request.url).pathname !== '/api/me' && request.headers.get('X-Scorecard-User') !== data.user.id) {
+    const url = new URL(request.url);
+    const socket = url.pathname === '/api/live';
+    if (socket && request.headers.get('Origin') !== url.origin) return json({ error: 'Invalid socket origin.' }, 403);
+    // Browsers cannot set custom headers on WebSocket handshakes. This is an
+    // account-switch guard, not a credential; Access still verifies the JWT.
+    const account = socket ? url.searchParams.get('user') : request.headers.get('X-Scorecard-User');
+    if (url.pathname !== '/api/me' && account !== data.user.id) {
       return json({ error: 'Your signed-in account changed. Reload to open that account.' }, 401);
     }
     const response = await context.next();
+    if (response.status === 101) return response;
     const result = new Response(response.body, response);
     result.headers.set('Cache-Control', 'no-store');
     return result;

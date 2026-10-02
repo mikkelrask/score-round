@@ -33,6 +33,7 @@ commands so Wrangler uses its existing Pages/D1 OAuth login:
 
 ```sh
 env -u CLOUDFLARE_API_TOKEN npx wrangler d1 migrations apply boxing-round --remote
+env -u CLOUDFLARE_API_TOKEN npm run deploy:live
 env -u CLOUDFLARE_API_TOKEN npm run deploy
 ```
 
@@ -134,7 +135,7 @@ Choose the same scheduled API fight as your friends. A **Fight night** panel app
 
 Save your round with **Next round**, then choose **Reveal round N** to see saved votes, per-round scores and running totals in your own red–blue order. The server verifies ownership and your cloud-saved round count before returning any scores. An ahead scorer is truncated to your requested round; someone behind shows **Waiting**. A split room means submitted winner votes differ, including even rounds. Totals state which round each scorer has reached.
 
-The revealed comparison refreshes every 15 seconds while visible, without advancing beyond the last explicitly revealed round. **Hide scores** closes it; reopening and each new round require an explicit reveal. Reveal choices are session-only. One card per user is shown: their active card for that fight, otherwise their earliest completed card. Fighter IDs (or exact normalized names for older cards) map swapped corners; mismatched fighters or scheduled round counts are excluded.
+The revealed comparison uses a hibernating WebSocket for immediate saved-round notifications, without advancing beyond the last explicitly revealed round. Notifications contain no scores or identities; the browser refetches through the authenticated, round-gated endpoint. Disconnected sockets reconnect with backoff and use the existing 15-second polling fallback. Hidden tabs and hidden comparisons disconnect; reopening fetches the latest saved scores. Draft-only edits do not broadcast. **Hide scores** closes it; reopening and each new round require an explicit reveal. Reveal choices are session-only. One card per user is shown: their active card for that fight, otherwise their earliest completed card. Fighter IDs (or exact normalized names for older cards) map swapped corners; mismatched fighters or scheduled round counts are excluded.
 
 Official final totals appear only after you complete and record your own full decision card and reveal all rounds. Fight night reads the existing official-results cache and makes no provider requests while scoring. **Check official totals** uses the existing comparison endpoint and quota protections. The provider does not supply round-by-round judge cards.
 
@@ -149,3 +150,9 @@ The home screen's **At ringside together** lobby lists active scheduled cards st
 **Profile** links on setup, live corners and saved cards use the [Boxing Data fighter endpoint](https://boxing-data.com/docs/endpoints/fighters/). Known fighter IDs are preferred; manual names require a unique exact normalized match across a complete search response. Unknown, ambiguous, inaccessible or missing fields remain unavailable. Profiles show the current provider record, nationality, stance, height, reach, nickname, debut and career rounds where supplied. Age is displayed only if supplied; birth year is not converted into an invented exact age. These records are current snapshots, not historical fight-day records. Commons portraits reuse the existing shared image lookup and Photo sources footer.
 
 Apply `migrations/0005_fighter_profiles.sql` locally/remotely before deploying. Profile lookup is on demand, with a shared seven-day cache and a lease to deduplicate concurrent requests. Failed refreshes retain marked stale data and retry after one hour. At most 20 profile lookups are reserved per UTC calendar month, within the existing global 80-request ceiling. Profiles also atomically leave ten requests available when the provider's remaining quota is known and its reset has not passed; schedules and official comparisons can use that reserve. Quota headers keep the shared balance updated. Browsing lobby and stats has no upstream cost.
+
+## Live Worker
+
+`live/wrangler.jsonc` deploys `boxing-round-live`, a SQLite-backed Durable Object namespace on the Workers free plan. It has no public route or workers.dev endpoint. Pages accesses it through its `FIGHT_ROOMS` binding. Deploy the live Worker before deploying Pages (including on a new account). D1 remains the source of truth; a notification failure cannot undo a save. No boxing-provider calls are made by live updates.
+
+For local live development, run `npx wrangler dev --config live/wrangler.jsonc --port 8790` in a separate terminal before starting Pages on port 8788. Wrangler connects the binding automatically. The browser suite includes a real-socket test and requires both dev processes. Connections renew every 25 minutes to recheck Access and the signed-in account; heartbeat replies use the hibernation auto-response API.
