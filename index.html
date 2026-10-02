@@ -13,6 +13,34 @@
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+<svg width="0" height="0" aria-hidden="true" focusable="false" style="position:absolute;pointer-events:none">
+  <defs>
+    <filter id="portrait-red" color-interpolation-filters="sRGB">
+      <feColorMatrix type="matrix" values=".2126 .7152 .0722 0 0 .2126 .7152 .0722 0 0 .2126 .7152 .0722 0 0 0 0 0 1 0"/>
+      <feComponentTransfer>
+        <feFuncR type="table" tableValues=".169 .635 1"/>
+        <feFuncG type="table" tableValues=".063 .231 .835"/>
+        <feFuncB type="table" tableValues=".106 .302 .812"/>
+      </feComponentTransfer>
+    </filter>
+    <filter id="portrait-blue" color-interpolation-filters="sRGB">
+      <feColorMatrix type="matrix" values=".2126 .7152 .0722 0 0 .2126 .7152 .0722 0 0 .2126 .7152 .0722 0 0 0 0 0 1 0"/>
+      <feComponentTransfer>
+        <feFuncR type="table" tableValues=".051 .184 .796"/>
+        <feFuncG type="table" tableValues=".118 .467 .906"/>
+        <feFuncB type="table" tableValues=".220 .694 1"/>
+      </feComponentTransfer>
+    </filter>
+    <filter id="portrait-gold" color-interpolation-filters="sRGB">
+      <feColorMatrix type="matrix" values=".2126 .7152 .0722 0 0 .2126 .7152 .0722 0 0 .2126 .7152 .0722 0 0 0 0 0 1 0"/>
+      <feComponentTransfer>
+        <feFuncR type="table" tableValues=".125 .588 1"/>
+        <feFuncG type="table" tableValues=".094 .443 .929"/>
+        <feFuncB type="table" tableValues=".047 .208 .729"/>
+      </feComponentTransfer>
+    </filter>
+  </defs>
+</svg>
 <header class="topbar no-print">
   <div class="brand">
     <span class="brand-mark">10</span>
