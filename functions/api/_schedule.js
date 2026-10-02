@@ -9,7 +9,7 @@ class ScheduleError extends Error {
   constructor(message, delay = 900) { super(message); this.delay = delay; }
 }
 
-async function reserveRequest(DB, now) {
+export async function reserveRequest(DB, now) {
   const cache = await DB.prepare('SELECT requests_remaining, quota_reset_at FROM fight_schedule_cache WHERE id = ?').bind(CACHE_ID).first();
   if (cache.requests_remaining != null && cache.requests_remaining <= 0 && cache.quota_reset_at > now) {
     throw new ScheduleError('The schedule request allowance has been used. You can still enter a fight manually.', cache.quota_reset_at - now);

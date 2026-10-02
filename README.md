@@ -105,3 +105,17 @@ provider quota is tracked, and the app additionally caps automatic requests at
 80 per calendar month. Failed refreshes are cached temporarily; any saved schedule
 is retained and marked stale. **Check schedule** respects the cache and request
 budget rather than forcing another provider call.
+
+### Official judges and shared leaderboard
+
+Everyone admitted through Cloudflare Access participates by default. The leaderboard shows email local parts as names, agreement percentages, and ranked fight counts; it does not expose full addresses, account IDs, private notes, active fights, or round-by-round personal cards.
+
+Only completed, full-length decision cards linked to scheduled API fights count. Official results are checked automatically after recording a qualifying result, and for up to three recent qualifying cards on app startup or when opening the leaderboard. Older linked cards can be checked from history. Manual cards, stoppages, incomplete cards, missing official totals, mismatched fighters/round counts and ambiguous results remain unranked. Each user contributes one card per fight: the earliest completed card, with its current saved scores. This is a friendly comparison, not a competition with enforced pre-result submissions or anti-cheating controls.
+
+Agreement compares both personal fighter totals with the arithmetic mean of the official cards. If `error = (abs(red - officialRedMean) + abs(blue - officialBlueMean)) / 2`, agreement is `max(0, 100 * (1 - error / rounds))`. Each eligible fight has equal weight in a user's overall average. A perfect match is 100%; one point of average error in a ten-round fight gives 90%. Fight counts make small samples visible. This measures agreement with final totals, not round-by-round accuracy or whether the official judging was correct.
+
+The provider supplies unlabelled score pairs. We orient the entire set by the published winner and majority decision; dissenting split cards are preserved. Published outcome and judge votes must agree. Draws can only be paired automatically when every supplied card has equal scores. The UI explains this pairing. Fighter IDs, or exact normalized names for older saved cards, then map official scores into the user's chosen corners.
+
+Official scores use a shared D1 cache, request lease, and the same 80-request/month ceiling and upstream quota checks as schedules. Failures and pending results are cached briefly to avoid repeated calls. Successfully paired results are retained, with no automatic refresh, so they remain comparable beyond the free subscription's historical window. The leaderboard reads saved cards and cached results without spending API calls. Deleting a saved card removes its contribution on the next leaderboard read; score edits and imports remain allowed.
+
+Apply `migrations/0003_official_scores.sql` before deploying this feature. It adds only an official-results cache; personal history remains in the existing storage. Results stay excluded from the schedule endpoint and only become visible in a completed card or the leaderboard aggregate.
